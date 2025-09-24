@@ -1,2 +1,2 @@
 # Thesis
-Python code for thesis
+Python code
