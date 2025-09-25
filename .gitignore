@@ -1,0 +1,15 @@
+### Nome files da ignorare e non pubblicare online!
+
+# File ignorato:
+idee.txt    
+
+# Cartella ignorata:
+idee/
+
+# Tutti i files dentro la cartella sono ignorati:
+idee/*
+
+# Eccezioni che non vanno ignorate :
+#     - non possibile se si ha idee/ perchè viene ignroata cmq
+#     - possibile solo per il caso di idee/*
+!idee/istruzioni.md    
