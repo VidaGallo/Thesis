@@ -1,12 +1,60 @@
-""" TRAM and BUS data from OSM """
-
 import osmnx as ox
 import pandas as pd
-from osmnx import distance
 
 
 
-def transit_data_extraction_simple(city, modes=["bus", "tram"], network_type="drive", output_path="data/input_data_simple.xlsx"):
+
+####################
+# GENERATE TEST DATA
+####################
+def create_test_data(output_path="data/input_data_test.xlsx"):
+    """
+    Creates a minimal test dataset for transit ILP:
+    - 2 lines (bus 1 and bus 2)
+    - few stops
+    - saves to ONE SINGLE Excel with two sheets: Lines and Stops
+    """
+
+
+    # === Lines (routes) ===
+    lines_data = [
+        {"route": "bus", "ref": "1", "name": "Line 1", "geometry": "LINESTRING (0 0, 1 0, 2 0)"},
+        {"route": "bus", "ref": "2", "name": "Line 2", "geometry": "LINESTRING (0 1, 1 1, 2 1)"},
+    ]
+    df_routes = pd.DataFrame(lines_data)
+
+
+    # === Stops ===
+    stops_data = [
+        {"stop_id": 0, "name": "Stop A", "type": "bus_stop", "node": 0, "lon": 0, "lat": 0},
+        {"stop_id": 1, "name": "Stop B", "type": "bus_stop", "node": 1, "lon": 1, "lat": 0},
+        {"stop_id": 2, "name": "Stop C", "type": "bus_stop", "node": 2, "lon": 2, "lat": 0},
+        {"stop_id": 3, "name": "Stop D", "type": "bus_stop", "node": 3, "lon": 0, "lat": 1},
+        {"stop_id": 4, "name": "Stop E", "type": "bus_stop", "node": 4, "lon": 1, "lat": 1},
+        {"stop_id": 5, "name": "Stop F", "type": "bus_stop", "node": 5, "lon": 2, "lat": 1},
+    ]
+    df_stops = pd.DataFrame(stops_data)
+
+
+    # === Save to Excel ===
+    with pd.ExcelWriter(output_path) as writer:
+        df_routes.to_excel(writer, sheet_name="Lines", index=False)
+        df_stops.to_excel(writer, sheet_name="Stops", index=False)
+
+    print(f"Test data saved to {output_path}")
+    return df_routes, df_stops
+
+
+
+
+
+
+
+
+############################
+# TRAM and BUS data from OSM 
+############################
+def transit_data_extraction_simple(city, modes=["bus", "tram"], network_type="drive"):
     """
     Extracts bus and tram data from OpenStreetMap for a given city (ex- "Torino, Italy")
     and saves it to an Excel file.
@@ -21,6 +69,7 @@ def transit_data_extraction_simple(city, modes=["bus", "tram"], network_type="dr
     G = ox.graph_from_place(city, network_type=network_type)
     G = ox.project_graph(G)   # to transform the (lat,lon) into coordinates (in m) for measuring distances
     
+
 
 
     # === Bus and tram lines extraction ===
@@ -38,12 +87,14 @@ def transit_data_extraction_simple(city, modes=["bus", "tram"], network_type="dr
                           # drop rows that case some NaN => then we need to reset indices (sonce some might be missing now)
 
 
+
     # === Extract stops (based on modes) ===
     stop_tags = {}
     if "bus" in modes:
         stop_tags["highway"] = "bus_stop"      # prendi da OSM tutti gli elementi con highway=bus_stop
     if "tram" in modes:
         stop_tags["railway"] = "tram_stop"     # prendi da OSM tutti gli elementi con railway=tram_stop
+
 
 
     # Dataframe construction
@@ -55,6 +106,7 @@ def transit_data_extraction_simple(city, modes=["bus", "tram"], network_type="dr
         stops = pd.concat(stops_list, axis=0)   # We unite in a single DATAFRAME
     else:
         stops = pd.DataFrame()
+
 
 
 
@@ -75,11 +127,15 @@ def transit_data_extraction_simple(city, modes=["bus", "tram"], network_type="dr
     df_stops = pd.DataFrame(stop_records)    # convert to Dataframe
 
 
-
     
     # === Save to Excel and Return ===
-    print(f"Data saved" to {output_path} ...")
-    with pd.ExcelWriter(output_path) as writer:
+    city_clean = city.split(",")[0].replace(" ", "_")     # City name selection
+    modes_str = "_".join(modes)  # es. "bus", "tram", "bus_tram"
+    output_path_dynamic = f"data/input_data_{city_clean}_{modes_str}.xlsx"
+
+    print(f"Saving data to {output_path_dynamic} ...")
+
+    with pd.ExcelWriter(output_path_dynamic) as writer:     # Creation of a SINGLE excel with 2 sheets
         df_routes.to_excel(writer, sheet_name="Lines", index=False)
         df_stops.to_excel(writer, sheet_name="Stops", index=False)
 
