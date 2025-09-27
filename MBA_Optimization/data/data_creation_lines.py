@@ -7,45 +7,65 @@ import pandas as pd
 ####################
 # GENERATE TEST DATA
 ####################
-def create_test_data(output_path="data/input_data_test.xlsx"):
+def create_test_data(n_lines=2, n_stops=3, output_folder="data"):
     """
     Creates a minimal test dataset for transit ILP:
-    - 2 lines (bus 1 and bus 2)
-    - few stops
-    - saves to ONE SINGLE Excel with two sheets: Lines and Stops
+    - n_lines lines (bus 1, bus 2, ...)
+    - n_stops per linea
+    - saves to TWO CSV files: lines and stops
     """
 
-
     # === Lines (routes) ===
-    lines_data = [
-        {"route": "bus", "ref": "1", "name": "Line 1", "geometry": "LINESTRING (0 0, 1 0, 2 0)"},
-        {"route": "bus", "ref": "2", "name": "Line 2", "geometry": "LINESTRING (0 1, 1 1, 2 1)"},
-    ]
-    df_routes = pd.DataFrame(lines_data)
+    df_routes_list = []
+    for line_idx in range(1, n_lines + 1):
+        # geometry semplice: linee lungo x o y per test
+        coords = []
+        for stop_idx in range(n_stops):
+            x = stop_idx
+            y = line_idx - 1
+            coords.append(f"{x} {y}")
+        geometry = f"LINESTRING ({', '.join(coords)})"  # Line geometry in WKT format
 
+        df_routes_list.append({
+            "route": "bus",                       # type of transit
+            "ref": str(line_idx),                  # line reference number
+            "name": f"Line {line_idx}",           # line name
+            "geometry": geometry                   # coordinates of the line
+        })
+
+    df_routes = pd.DataFrame(df_routes_list)       # Create DataFrame for lines
 
     # === Stops ===
-    stops_data = [
-        {"stop_id": 0, "name": "Stop A", "type": "bus_stop", "node": 0, "lon": 0, "lat": 0},
-        {"stop_id": 1, "name": "Stop B", "type": "bus_stop", "node": 1, "lon": 1, "lat": 0},
-        {"stop_id": 2, "name": "Stop C", "type": "bus_stop", "node": 2, "lon": 2, "lat": 0},
-        {"stop_id": 3, "name": "Stop D", "type": "bus_stop", "node": 3, "lon": 0, "lat": 1},
-        {"stop_id": 4, "name": "Stop E", "type": "bus_stop", "node": 4, "lon": 1, "lat": 1},
-        {"stop_id": 5, "name": "Stop F", "type": "bus_stop", "node": 5, "lon": 2, "lat": 1},
-    ]
-    df_stops = pd.DataFrame(stops_data)
+    df_stops_list = []
+    stop_id = 0
+    for line_idx in range(1, n_lines + 1):
+        for stop_idx in range(n_stops):
+            df_stops_list.append({
+                "stop_id": stop_id,                        # unique stop id
+                "name": f"Stop_{stop_id}",                 # stop name
+                "type": "bus_stop",                         # type of stop
+                "node": stop_id,                            # node id for graph mapping
+                "lon": stop_idx,                            # longitude (fake for test)
+                "lat": line_idx - 1                         # latitude (fake for test)
+            })
+            stop_id += 1
 
+    df_stops = pd.DataFrame(df_stops_list)           # Create DataFrame for stops
 
-    # === Save to Excel ===
-    with pd.ExcelWriter(output_path) as writer:
-        df_routes.to_excel(writer, sheet_name="Lines", index=False)
-        df_stops.to_excel(writer, sheet_name="Stops", index=False)
+    # === Save to CSV ===
+    output_routes = f"{output_folder}/input_data_test_lines.csv"   # CSV file for lines
+    output_stops = f"{output_folder}/input_data_test_stops.csv"    # CSV file for stops
 
-    print(f"Test data saved to {output_path}")
-    return df_routes, df_stops
+    print(f"Saving routes to {output_routes} ...")                  
+    df_routes.to_csv(output_routes, index=False)  # Save lines as CSV
+
+    print(f"Saving stops to {output_stops} ...")                     
+    df_stops.to_csv(output_stops, index=False)    # Save stops as CSV
+
+    return df_routes, df_stops                       # Return DataFrames
 
 
 if __name__ == "__main__":
     # === Generate test dataset ===
     print("Generating test dataset...")
-    create_test_data(output_path="data/input_data_test.xlsx")
+    create_test_data(n_lines=2, n_stops=3, output_folder="data")  # Example call

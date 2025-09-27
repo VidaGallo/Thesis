@@ -1,6 +1,7 @@
 import osmnx as ox
 import pandas as pd
 import random
+import networkx as nx
 
 ############################
 # TRAM and BUS data from OSM (or fake lines if missing)
@@ -40,10 +41,15 @@ def transit_data_extraction_simple(city, n_lines=2, n_stops=8, network_type="dri
             if not neighbors:
                 break
             next_node = random.choice(neighbors)
-            edge_data = G.get_edge_data(current_node, next_node)
-            length = edge_data[0].get('length', 0)  # lunghezza in metri
-            if length >= min_dist:
-                stops.append(next_node)
+
+                # calcolo distanza dall'ultima fermata in lista (non solo arco diretto!)
+            dist = nx.shortest_path_length(G, stops[-1], next_node, weight="length")
+
+            if dist >= min_dist:
+                stops.append(next_node)   # aggiungi nuova fermata
+                current_node = next_node
+            else:
+                # altrimenti prova con un altro vicino
                 current_node = next_node
 
         # === add route / aggiungi linea ===
@@ -72,14 +78,16 @@ def transit_data_extraction_simple(city, n_lines=2, n_stops=8, network_type="dri
     df_routes = pd.DataFrame(df_routes_list)
     df_stops = pd.DataFrame(df_stops_list)
 
-    # === Save to Excel and Return / salva Excel e ritorna ===
+    # === Save to CSV and Return ===
     city_clean = city.split(",")[0].replace(" ", "_")
-    output_path = f"data/input_data_{city_clean}_fake.xlsx"
+    output_path_routes = f"data/input_data_{city_clean}_lines_fake.csv"
+    output_path_stops = f"data/input_data_{city_clean}_stops_fake.csv"
 
-    print(f"Saving data to {output_path} ...")
-    with pd.ExcelWriter(output_path) as writer:
-        df_routes.to_excel(writer, sheet_name="Lines", index=False)
-        df_stops.to_excel(writer, sheet_name="Stops", index=False)
+    print(f"Saving routes to {output_path_routes} ...")
+    df_routes.to_csv(output_path_routes, index=False)   # salva le linee in CSV
+
+    print(f"Saving stops to {output_path_stops} ...")
+    df_stops.to_csv(output_path_stops, index=False)     # salva le fermate in CSV
 
     return df_routes, df_stops, G
 

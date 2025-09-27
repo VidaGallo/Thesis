@@ -4,12 +4,11 @@
 MBA_Optimization/  
 │  
 ├── data/  
-|   └── data_creation_lines.py      # (1) test semplice con solo 2 linee (creazione di input_data_lines.xlsx)
-|   └── data_creation_grid.py       # (2) test semplice con solo 2 linee (creazione di input_data_grid.xlsx)
-|   └── data_creation_city-name.py  # (3) estrazione corse bus/tram con OSM (creazione di input_data_city-name.xlsx)
-│   └── input_data_lines.xlsx       # (1) dati in input 2 linee
-│   └── input_data_grid.xlsx        # (2) dati in input grid
-│   └── input_data_city-name.xlsx   # (3) dati in input di una città (es. Torino)
+|   └── data_creation_lines.py      # (1) creazione corse con linee
+|   └── data_creation_grid.py       # (2) creazione corse con grid
+|   └── data_creation_city-name.py  # (3) creazione corse su grafo di una città
+|       # lines: bus, n°linea, nome, geometry:percorso linea (coordinate metriche)
+|       # stops: id, nome, tipo, nodo, coordinate metriche
 │  
 ├── models/  
 │   └── mba_ilp.py          # definizione modello ILP   
