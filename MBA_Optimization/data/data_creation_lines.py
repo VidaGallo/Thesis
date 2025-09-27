@@ -1,5 +1,5 @@
-import osmnx as ox
 import pandas as pd
+import matplotlib.pyplot as plt
 
 
 
@@ -53,8 +53,8 @@ def create_test_data(n_lines=2, n_stops=3, output_folder="data"):
     df_stops = pd.DataFrame(df_stops_list)           # Create DataFrame for stops
 
     # === Save to CSV ===
-    output_routes = f"{output_folder}/input_data_test_lines.csv"   # CSV file for lines
-    output_stops = f"{output_folder}/input_data_test_stops.csv"    # CSV file for stops
+    output_routes = f"{output_folder}/input_data_line_lines.csv"   # CSV file for lines
+    output_stops = f"{output_folder}/input_data_line_stops.csv"    # CSV file for stops
 
     print(f"Saving routes to {output_routes} ...")                  
     df_routes.to_csv(output_routes, index=False)  # Save lines as CSV
@@ -65,7 +65,44 @@ def create_test_data(n_lines=2, n_stops=3, output_folder="data"):
     return df_routes, df_stops                       # Return DataFrames
 
 
+
+
+
+def plot_transit_data(df_routes, df_stops, title="Transit Lines"):
+    """
+    Plot the transit lines and stops.
+    df_routes: DataFrame with a 'geometry' column (LINESTRING WKT)
+    df_stops: DataFrame with 'lon' and 'lat' for stop positions
+    """
+    plt.figure(figsize=(6, 6))
+    
+    # plot each line
+    for idx, row in df_routes.iterrows():
+        coords_text = row['geometry'].replace("LINESTRING (", "").replace(")", "")
+        coords = [list(map(float, p.split())) for p in coords_text.split(", ")]
+        xs, ys = zip(*coords)
+        plt.plot(xs, ys, marker='o', label=row['name'])
+    
+    # plot stops
+    plt.scatter(df_stops['lon'], df_stops['lat'], color='red', zorder=5)
+    
+    plt.title(title)
+    plt.xlabel("X")
+    plt.ylabel("Y")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+
+
+
+
+
+
 if __name__ == "__main__":
     # === Generate test dataset ===
     print("Generating test dataset...")
-    create_test_data(n_lines=2, n_stops=3, output_folder="data")  # Example call
+    df_routes, df_stops = create_test_data(n_lines=2, n_stops=3, output_folder="data")  # Example call
+
+    # === Visualize generated lines and stops ===
+    plot_transit_data(df_routes, df_stops, title="Test Line Transit Network")

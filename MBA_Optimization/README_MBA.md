@@ -6,7 +6,7 @@ MBA_Optimization/
 ├── data/  
 |   └── data_creation_lines.py      # (1) creazione corse con linee
 |   └── data_creation_grid.py       # (2) creazione corse con grid
-|   └── data_creation_city-name.py  # (3) creazione corse su grafo di una città
+|   └── data_creation_graph.py      # (3) creazione corse su grafo di una città
 |       # lines: bus, n°linea, nome, geometry:percorso linea (coordinate metriche)
 |       # stops: id, nome, tipo, nodo, coordinate metriche
 │  
@@ -22,5 +22,5 @@ MBA_Optimization/
 │  
 │── main_lines.py                # script principale per lines
 │── main_grid.py                 # script principale per grid
-│── main_city.py                 # script principale per city      
+│── main_graph.py                 # script principale per city      
 
