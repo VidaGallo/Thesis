@@ -4,9 +4,9 @@
 MBA_Optimization/  
 │  
 ├── data/  
-|   └── data_creation_lines.py      # (1) creazione corse con linee
-|   └── data_creation_grid.py       # (2) creazione corse con grid
-|   └── data_creation_graph.py      # (3) creazione corse su grafo di una città
+|   └── buse_line_creation_lines.py      # (1) creazione corse con linee
+|   └── buse_line_creation_grid.py       # (2) creazione corse con grid
+|   └── buse_line_creation_graph.py      # (3) creazione corse su grafo di una città
 |       # lines: bus, n°linea, nome, geometry:percorso linea (coordinate metriche)
 |       # stops: id, nome, tipo, nodo, coordinate metriche
 │  
