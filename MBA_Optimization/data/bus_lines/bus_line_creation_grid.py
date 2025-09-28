@@ -2,6 +2,9 @@ import pandas as pd
 import random
 import matplotlib.pyplot as plt
 
+
+random.seed(123)
+
 #########################
 # GENERATE GRID TEST DATA
 ########################
@@ -111,8 +114,8 @@ def create_grid_test_data(n_lines=3, n_stops=5, grid_size=5, min_dist=1, output_
     df_stops = pd.DataFrame(df_stops_list)
 
     # Save to CSV
-    output_routes = f"{output_folder}/bus_lines/input_data_grid_lines.csv"
-    output_stops = f"{output_folder}/bus_lines/input_data_grid_stops.csv"
+    output_routes = f"{output_folder}/bus_lines/grid_lines.csv"
+    output_stops = f"{output_folder}/bus_lines/grid_stops.csv"
 
     print(f"Saving routes to {output_routes} ...")                  
     df_routes.to_csv(output_routes, index=False)  

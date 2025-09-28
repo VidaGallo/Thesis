@@ -2,7 +2,12 @@ import osmnx as ox
 import pandas as pd
 import random
 import networkx as nx
+import pickle
 import matplotlib.pyplot as plt
+
+random.seed(123)
+
+
 
 ############################
 # TRAM and BUS data from OSM (or fake lines if missing)
@@ -50,7 +55,6 @@ def transit_data_extraction_simple(city, n_lines=2, n_stops=8, network_type="dri
 
         # === generate stops for this line with minimum distance ===
         while len(stops) < n_stops:
-            print(len(stops))
             neighbors = list(G.neighbors(current_node))
 
             weights = [centrality[n] for n in neighbors]    # If higher centrality, higher probability
@@ -109,8 +113,8 @@ def transit_data_extraction_simple(city, n_lines=2, n_stops=8, network_type="dri
 
     # === Save to CSV and Return ===
     city_clean = city.split(",")[0].replace(" ", "_")
-    output_path_routes = f"data/bus_lines/input_data_graph_lines_{city_clean}.csv"
-    output_path_stops = f"data/bus_lines/input_data_graph_stops_{city_clean}.csv"
+    output_path_routes = f"data/bus_lines/graph_lines_{city_clean}.csv"
+    output_path_stops = f"data/bus_lines/graph_stops_{city_clean}.csv"
 
     print(f"Saving routes to {output_path_routes} ...")
     df_routes.to_csv(output_path_routes, index=False)   # salva le linee in CSV
@@ -148,6 +152,12 @@ def plot_transit_graph(G, df_routes, df_stops, title="Transit Lines on Graph"):
 
 if __name__ == "__main__":
     city_name = "Turin, Italy"  # or Rome, Milan, ...
+    city_clean = city_name.split(",")[0]
     print(f"Generating lines for {city_name}...")
-    df_routes, df_stops, G  = transit_data_extraction_simple(city=city_name, n_lines=11, n_stops=15)
+    df_routes, df_stops, G  = transit_data_extraction_simple(city=city_name, n_lines=5, n_stops=15)
     plot_transit_graph(G, df_routes, df_stops)
+
+    # === Save graph ===
+    output_path = f"data/bus_lines/bus_lines_{city_clean}_graph.gpickle"
+    with open(output_path, "wb") as f:
+        pickle.dump(G, f)

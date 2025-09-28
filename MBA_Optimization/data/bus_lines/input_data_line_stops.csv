@@ -1,7 +1,0 @@
-stop_id,name,type,node,lon,lat
-0,Stop_0,bus_stop,0,0,0
-1,Stop_1,bus_stop,1,1,0
-2,Stop_2,bus_stop,2,2,0
-3,Stop_3,bus_stop,3,0,1
-4,Stop_4,bus_stop,4,1,1
-5,Stop_5,bus_stop,5,2,1

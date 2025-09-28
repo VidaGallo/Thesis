@@ -1,3 +1,0 @@
-route,ref,name,geometry
-bus,1,Line 1,"LINESTRING (0 0, 1 0, 2 0)"
-bus,2,Line 2,"LINESTRING (0 1, 1 1, 2 1)"
