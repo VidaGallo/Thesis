@@ -1,54 +1,60 @@
 import pandas as pd
 
-class TransitDataLoader:
+
+def load_transit_data(lines_file, stops_file):
     """
-    Generic loader for transit datasets (lines + stops in CSV).
-    Builds dictionaries and helper structures for optimization.
+    Load transit network data from CSV files and build sets for the ILP model.
     """
+    # === Load CSVs ===
+    df_routes = pd.read_csv(lines_file)
+    df_stops = pd.read_csv(stops_file)
 
-    def __init__(self, lines_csv, stops_csv):
-        """
-        lines_csv : path to lines CSV file
-        stops_csv : path to stops CSV file
-        """
-        self.lines_csv = lines_csv
-        self.stops_csv = stops_csv
-        self.lines_df = None
-        self.stops_df = None
-        self.stops_at_node = {}      # node -> list of stop_ids
-        self.line_stops = {}         # line_ref -> list of stop_ids
-        self.load_data()
+    # === Sets of nodes and lines ===
+    V = set(df_stops["node"])                       # all nodes
+    L = set(df_routes["ref"])                       # all lines
 
-    def load_data(self): 
-        # === Read CSVs ===
-        self.lines_df = pd.read_csv(self.lines_csv)
-        self.stops_df = pd.read_csv(self.stops_csv)
+    # === Extract arcs (A) from line geometries ===
+    A = []
+    for _, row in df_routes.iterrows():
+        line_id = row["ref"]
+        coords_text = row["geometry"].replace("LINESTRING (", "").replace(")", "")
+        coords = [tuple(map(float, p.split())) for p in coords_text.split(", ")]
+        nodes = df_stops[df_stops[["lon", "lat"]].apply(tuple, axis=1).isin(coords)]["node"].tolist()
 
-        # === Map stops by node ===
-        for idx, row in self.stops_df.iterrows():  
-            # Per ogni fermata, creo un dizionario che dice quali stop si trovano su quel nodo del grafo
-            # Più linee possono condividere lo stesso nodo (intersezioni)
-            node = row["node"]
-            stop_id = row["stop_id"]
-            if node not in self.stops_at_node:
-                self.stops_at_node[node] = []
-            self.stops_at_node[node].append(stop_id)
+        # Build arcs as consecutive pairs (i,j,l)
+        for i in range(len(nodes)-1):
+            A.append((nodes[i], nodes[i+1], line_id))
 
-        # === Map stops by line ===
-        for idx, row in self.lines_df.iterrows():
-            line_ref = row["ref"]
-            geometry = row["geometry"]
-            # LINESTRING "x y, x y, ..."
-            coords = [tuple(map(float, c.split())) for c in geometry.replace("LINESTRING (","").replace(")","").split(",")]
-            
-            # find stops that match coordinates (approximate match)
-            stop_ids = []
-            for x, y in coords:
-                # naive closest match
-                closest_stop = self.stops_df.iloc[((self.stops_df["lon"] - x)**2 + (self.stops_df["lat"] - y)**2).idxmin()]
-                stop_ids.append(closest_stop["stop_id"])
-            self.line_stops[line_ref] = stop_ids
+    # === Terminals (first/last stops of each line) ===
+    T = set()
+    for line in L:
+        nodes_line = [a for a in A if a[2] == line]
+        if nodes_line:
+            T.add(nodes_line[0][0])        # first node
+            T.add(nodes_line[-1][1])       # last node
 
-    def print_summary(self):
-        print(f"Loaded {len(self.lines_df)} lines and {len(self.stops_df)} stops")
-        print(f"{len(self.stops_at_node)} unique nodes with stops")
+    # === Junctions (nodes shared by ≥ 2 lines) ===
+    node_to_lines = {}
+    for (i, j, l) in A:
+        node_to_lines.setdefault(i, set()).add(l)
+        node_to_lines.setdefault(j, set()).add(l)
+    J = {n for n, lines in node_to_lines.items() if len(lines) > 1}
+
+    # === Ordinary stops ===
+    S = V - (T | J)
+
+    # === Rebalancing arcs (R) between T ∪ J) ===
+    TJ = list(T | J)
+    R = {(i, j) for i in TJ for j in TJ if i != j}
+
+    return {
+        "V": V,
+        "L": L,
+        "A": A,
+        "T": T,
+        "J": J,
+        "S": S,
+        "R": R,
+        "df_routes": df_routes,
+        "df_stops": df_stops
+    }

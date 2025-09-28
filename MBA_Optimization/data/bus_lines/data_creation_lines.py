@@ -53,8 +53,8 @@ def create_test_data(n_lines=2, n_stops=3, output_folder="data"):
     df_stops = pd.DataFrame(df_stops_list)           # Create DataFrame for stops
 
     # === Save to CSV ===
-    output_routes = f"{output_folder}/input_data_line_lines.csv"   # CSV file for lines
-    output_stops = f"{output_folder}/input_data_line_stops.csv"    # CSV file for stops
+    output_routes = f"{output_folder}/bus_lines/input_data_line_lines.csv"   # CSV file for lines
+    output_stops = f"{output_folder}/bus_lines/input_data_line_stops.csv"    # CSV file for stops
 
     print(f"Saving routes to {output_routes} ...")                  
     df_routes.to_csv(output_routes, index=False)  # Save lines as CSV

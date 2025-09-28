@@ -2,6 +2,7 @@ import osmnx as ox
 import pandas as pd
 import random
 import networkx as nx
+import matplotlib.pyplot as plt
 
 ############################
 # TRAM and BUS data from OSM (or fake lines if missing)
@@ -49,6 +50,7 @@ def transit_data_extraction_simple(city, n_lines=2, n_stops=8, network_type="dri
 
         # === generate stops for this line with minimum distance ===
         while len(stops) < n_stops:
+            print(len(stops))
             neighbors = list(G.neighbors(current_node))
 
             weights = [centrality[n] for n in neighbors]    # If higher centrality, higher probability
@@ -107,8 +109,8 @@ def transit_data_extraction_simple(city, n_lines=2, n_stops=8, network_type="dri
 
     # === Save to CSV and Return ===
     city_clean = city.split(",")[0].replace(" ", "_")
-    output_path_routes = f"data/input_data_graph_lines_{city_clean}.csv"
-    output_path_stops = f"data/input_data_graph_stops_{city_clean}.csv"
+    output_path_routes = f"data/bus_lines/input_data_graph_lines_{city_clean}.csv"
+    output_path_stops = f"data/bus_lines/input_data_graph_stops_{city_clean}.csv"
 
     print(f"Saving routes to {output_path_routes} ...")
     df_routes.to_csv(output_path_routes, index=False)   # salva le linee in CSV
@@ -119,7 +121,33 @@ def transit_data_extraction_simple(city, n_lines=2, n_stops=8, network_type="dri
     return df_routes, df_stops, G
 
 
+
+def plot_transit_graph(G, df_routes, df_stops, title="Transit Lines on Graph"):
+    """
+    Plot the transit lines and stops on the city graph.
+    """
+    fig, ax = ox.plot_graph(G, show=False, close=False, node_size=0, edge_color='lightgray', edge_linewidth=0.5)
+    title=f"Transit Lines in {city_name}"
+    # Plot lines
+    colors = plt.cm.get_cmap('tab10', len(df_routes))
+    for idx, row in df_routes.iterrows():
+        coords_text = row['geometry'].replace("LINESTRING (", "").replace(")", "")
+        coords = [list(map(float, p.split())) for p in coords_text.split(", ")]
+        xs, ys = zip(*coords)
+        ax.plot(xs, ys, color=colors(idx), linewidth=2, label=row['name'])
+
+    # Plot stops
+    ax.scatter(df_stops['lon'], df_stops['lat'], color='red', s=20, zorder=5, label='Stops')
+
+    ax.set_title(title)
+    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+    plt.show()
+
+
+
+
 if __name__ == "__main__":
     city_name = "Turin, Italy"  # or Rome, Milan, ...
-    print(f"Generating OSM dataset (or fake lines) for {city_name}...")
-    transit_data_extraction_simple(city=city_name, n_lines=11, n_stops=15)
+    print(f"Generating lines for {city_name}...")
+    df_routes, df_stops, G  = transit_data_extraction_simple(city=city_name, n_lines=11, n_stops=15)
+    plot_transit_graph(G, df_routes, df_stops)
