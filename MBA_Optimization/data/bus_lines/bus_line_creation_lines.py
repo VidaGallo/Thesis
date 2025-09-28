@@ -151,7 +151,7 @@ def create_cross_graph(output_folder="data"):
             G.add_edge(v, u, weight=1)  # bidirectional
 
     # Save graph
-    graph_file = f"{output_folder}/cross_graph.gpickle"
+    graph_file = f"{output_folder}/line_graph.gpickle"
     with open(graph_file, "wb") as f:
         pickle.dump(G, f)
 

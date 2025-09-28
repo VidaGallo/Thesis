@@ -48,11 +48,11 @@ def create_grid_test_data_connected(n_lines=3, n_stops=5, grid_size=5, output_fo
             probs = [0.6 if (dx, dy)==last_move else 0.4/3 for dx, dy in directions]
             for _ in range(10):  # max 10 attempts
                 dx, dy = random.choices(directions, weights=probs)[0]
-                nx = max(1, min(grid_size, stops[-1][0]+dx))
-                ny = max(1, min(grid_size, stops[-1][1]+dy))
-                if (nx, ny) not in stops:  # avoid revisiting
-                    stops.append((nx, ny))
-                    candidate_nodes.add((nx, ny))
+                nx_coord  = max(1, min(grid_size, stops[-1][0]+dx))
+                ny_coord = max(1, min(grid_size, stops[-1][1]+dy))
+                if (nx_coord, ny_coord) not in stops:  # avoid revisiting
+                    stops.append((nx_coord, ny_coord))
+                    candidate_nodes.add((nx_coord, ny_coord))
                     break
 
         # === Check overlap ===
@@ -163,8 +163,8 @@ def plot_transit_data(df_routes, df_stops, grid_size=None, title="Transit networ
 
 if __name__ == "__main__":
     print("Generating grid test dataset...")
-    gs = 7
-    df_routes, df_stops, G = create_grid_test_data_connected(n_lines=5, n_stops=15, grid_size=gs)
+    gs = 8
+    df_routes, df_stops, G = create_grid_test_data_connected(n_lines=4, n_stops=11, grid_size=gs)
     plot_transit_data(df_routes, df_stops, grid_size = gs)
 
     # Save graph
