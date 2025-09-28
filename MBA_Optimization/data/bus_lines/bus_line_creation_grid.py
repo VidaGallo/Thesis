@@ -1,129 +1,126 @@
 import pandas as pd
-import random
 import matplotlib.pyplot as plt
+import networkx as nx
+import pickle
+import random
 
 
 random.seed(123)
 
+
 #########################
 # GENERATE GRID TEST DATA
 ########################
-
-def create_grid_test_data(n_lines=3, n_stops=5, grid_size=5, min_dist=1, output_folder="data"):
+def create_grid_test_data_connected(n_lines=3, n_stops=5, grid_size=5, output_folder="data"):
     """
-    Creates a test dataset on a NxN grid:
+    Creates a strongly connected grid test dataset:
     - n_lines lines
     - n_stops per line
-    - min_dist controls min distance between consecutive stops
-    - lines can intersect at stops
-    - saves two CSVs: lines and stops
+    - Each line intersects at least one previous line
+    - If a new line shares >2 nodes with an existing line, it is discarded
+    - Saves CSVs for lines and stops, and a NetworkX graph with unitary edges
     """
-
     df_routes_list = []
     df_stops_list = []
     stop_id = 0
-    stop_positions = {}  # key: (x,y), value: list of stop_ids for multi-line stops
-    line_nodes = {}           # key: line_idx, value: set of nodes in that line
+    stop_positions = {}   # (x,y) -> stop_id
+    line_nodes = {}       # line_idx -> set of nodes
+    directions = [(1,0), (-1,0), (0,1), (0,-1)]
 
-    directions = [(1,0), (-1,0), (0,1), (0,-1)]  # right, left, up, down
-    occupied_starts = set()   # A line can't start from the same node as another line
+    line_idx = 1
+    max_retries = 200
 
-    for line_idx in range(1, n_lines+1):
-        # Pick a random start outside of already used start positions
-        while True:
-            x = random.randint(1, grid_size)
-            y = random.randint(1, grid_size)
-            if (x, y) not in occupied_starts:
-                occupied_starts.add((x, y))
-                break
+    while line_idx <= n_lines and max_retries > 0:
+        # === Start point ===
+        if line_idx == 1:
+            # First line can start anywhere
+            x, y = random.randint(1, grid_size), random.randint(1, grid_size)
+        else:
+            # Must start from an existing stop (to guarantee connectivity)
+            x, y = random.choice(list(stop_positions.keys()))
+
         stops = [(x, y)]
-        line_nodes[line_idx] = set([(x, y)])
+        candidate_nodes = set([(x, y)])
 
-        for stop_num in range(1, n_stops):
-            # Move with preference to continue straight
-            last_move = (stops[-1][0] - stops[-2][0], stops[-1][1] - stops[-2][1]) if len(stops) > 1 else (0,0)
-            probs = []
+        # === Build the line ===
+        for _ in range(1, n_stops):
+            last_move = (stops[-1][0]-stops[-2][0], stops[-1][1]-stops[-2][1]) if len(stops) > 1 else (0,0)
+            probs = [0.6 if (dx, dy)==last_move else 0.4/3 for dx, dy in directions]
+            for _ in range(10):  # max 10 attempts
+                dx, dy = random.choices(directions, weights=probs)[0]
+                nx = max(1, min(grid_size, stops[-1][0]+dx))
+                ny = max(1, min(grid_size, stops[-1][1]+dy))
+                if (nx, ny) not in stops:  # avoid revisiting
+                    stops.append((nx, ny))
+                    candidate_nodes.add((nx, ny))
+                    break
 
-            move_valid = False
-            attempt = 0
-            max_attempts = 5   # max 5 retries per stop
-            
-            for dx, dy in directions:
-                if (dx, dy) == last_move:
-                    probs.append(0.6)  # 60% chance to continue straight
-                else:
-                    probs.append(0.4/3)  # distribute remaining probability
-            while not move_valid and attempt < max_attempts:
-                move = random.choices(directions, weights=probs)[0]
+        # === Check overlap ===
+        too_much_overlap = False
+        has_intersection = (line_idx == 1)  # first line ok
+        for nodes in line_nodes.values():
+            shared = candidate_nodes & nodes
+            if len(shared) > 2:
+                too_much_overlap = True
+                break
+            if len(shared) >= 1:
+                has_intersection = True
 
-                # Next stop coordinates
-                nx = max(0, min(grid_size-1, stops[-1][0] + move[0]))
-                ny = max(0, min(grid_size-1, stops[-1][1] + move[1]))
+        if too_much_overlap or not has_intersection:
+            max_retries -= 1
+            continue  # discard and retry
 
-                # Check if the move would be diagonal relative to last step
-                if abs(nx - stops[-1][0]) + abs(ny - stops[-1][1]) == 1:
-                    move_valid = True  # valid horizontal or vertical step
-                #else loop again
-                attempt += 1
+        # === Accept line ===
+        line_nodes[line_idx] = candidate_nodes
 
-            # Avoid stops too close
-            if abs(nx - stops[-1][0]) + abs(ny - stops[-1][1]) < min_dist:
-                nx, ny = stops[-1]
-
-            # Avoid revisiting nodes except the first
-            if (nx, ny) in stops and (nx, ny) != stops[0]:
-                continue
-
-            # Skip if more than 2 nodes would be shared with any other line
-            shared_count = sum(1 for ln, nodes in line_nodes.items() 
-                                if ln != line_idx and (nx, ny) in nodes)
-            
-            # Otherwise accept
-            stops.append((nx, ny))
-
-
-        # Save line geometry
-        coords = [f"{x} {y}" for x,y in stops]
-        geometry = f"LINESTRING ({', '.join(coords)})"
+        coords = [f"{x} {y}" for x, y in stops]
         df_routes_list.append({
-            "route": "bus",                       
-            "ref": str(line_idx),                  
-            "name": f"Line {line_idx}",           
-            "geometry": geometry
+            "route": "bus",
+            "ref": str(line_idx),
+            "name": f"Line {line_idx}",
+            "geometry": f"LINESTRING ({', '.join(coords)})"
         })
 
-        # Save stops
         for x, y in stops:
-            key = (x,y)
-            if key in stop_positions:
-                stop_positions[key].append(stop_id)
-            else:
-                stop_positions[key] = [stop_id]
-            
-            df_stops_list.append({
-                "stop_id": stop_id,                        
-                "name": f"Stop_{stop_id}",                 
-                "type": "bus_stop",                         
-                "node": stop_id,                            
-                "lon": x,                                  
-                "lat": y                                   
-            })
-            stop_id += 1
+            if (x, y) not in stop_positions:
+                stop_positions[(x, y)] = stop_id
+                df_stops_list.append({
+                    "stop_id": stop_id,
+                    "name": f"Stop_{stop_id}",
+                    "type": "bus_stop",
+                    "node": stop_id,
+                    "lon": x,
+                    "lat": y
+                })
+                stop_id += 1
 
+        line_idx += 1
+
+    # === DataFrames ===
     df_routes = pd.DataFrame(df_routes_list)
     df_stops = pd.DataFrame(df_stops_list)
 
-    # Save to CSV
+    # === Save CSVs ===
     output_routes = f"{output_folder}/bus_lines/grid_lines.csv"
     output_stops = f"{output_folder}/bus_lines/grid_stops.csv"
+    df_routes.to_csv(output_routes, index=False)
+    df_stops.to_csv(output_stops, index=False)
 
-    print(f"Saving routes to {output_routes} ...")                  
-    df_routes.to_csv(output_routes, index=False)  
+    # === Graph ===
+    G = nx.DiGraph()
+    for _, row in df_stops.iterrows():
+        G.add_node(row['stop_id'], lon=row['lon'], lat=row['lat'])
 
-    print(f"Saving stops to {output_stops} ...")                     
-    df_stops.to_csv(output_stops, index=False)    
+    coord_to_stop_id = {(row['lon'], row['lat']): row['stop_id'] for _, row in df_stops.iterrows()}
+    for _, row in df_routes.iterrows():
+        coords_text = row['geometry'].replace("LINESTRING (", "").replace(")", "")
+        stop_ids_line = [coord_to_stop_id[tuple(map(float, c.split()))] for c in coords_text.split(", ")]
+        for u, v in zip(stop_ids_line[:-1], stop_ids_line[1:]):
+            G.add_edge(u, v, weight=1)
+            G.add_edge(v, u, weight=1)
 
-    return df_routes, df_stops
+    return df_routes, df_stops, G
+
 
 
 
@@ -152,8 +149,8 @@ def plot_transit_data(df_routes, df_stops, grid_size=None, title="Transit networ
 
     # === Setup ===
     if grid_size is not None:
-        plt.xlim(1, grid_size)
-        plt.ylim(1, grid_size)
+        plt.xlim(0.96, grid_size)
+        plt.ylim(0.96, grid_size)
     plt.title(title)
     plt.xlabel("X")
     plt.ylabel("Y")
@@ -167,5 +164,12 @@ def plot_transit_data(df_routes, df_stops, grid_size=None, title="Transit networ
 if __name__ == "__main__":
     print("Generating grid test dataset...")
     gs = 7
-    df_routes, df_stops = create_grid_test_data(n_lines=5, n_stops=11, grid_size=gs, min_dist=1)
+    df_routes, df_stops, G = create_grid_test_data_connected(n_lines=5, n_stops=15, grid_size=gs)
     plot_transit_data(df_routes, df_stops, grid_size = gs)
+
+    # Save graph
+    graph_file = f"data/bus_lines/grid_graph.gpickle"
+    with open(graph_file, "wb") as f:
+        pickle.dump(G, f)
+
+    print(f"Grid dataset saved. Graph saved as {graph_file}")

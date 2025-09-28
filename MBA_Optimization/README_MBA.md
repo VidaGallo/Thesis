@@ -10,7 +10,7 @@ MBA_Optimization/
 |   |   └── bus_line_creation_graph.py      # (3) creazione corse su grafo di una città
 |   |   # lines: bus, n°linea, nome, geometry:percorso linea (coordinate metriche)
 |   |   # stops: id, nome, tipo, nodo, coordinate metriche
-│   └──demand/
+│   └──demands/
 |       └── demand_creation.py  # creazione della domanda (prendendo le bus_lines e gli stop in input)
 |
 ├── models/  
