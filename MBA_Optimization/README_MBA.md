@@ -12,6 +12,7 @@ MBA_Optimization/
 |   |   # stops: id, nome, tipo, nodo, coordinate metriche
 │   └──demands/
 |       └── demand_creation.py  # creazione della domanda (prendendo le bus_lines e gli stop in input)
+|                               # le linee degli autobus sono un grafo e si cerca lo shortest path
 |
 ├── models/  
 │   └── mba_ilp.py          # definizione modello ILP   

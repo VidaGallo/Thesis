@@ -1,7 +1,10 @@
 stop_id,name,type,node,lon,lat
-0,Stop_0,bus_stop,0,0,0
-1,Stop_1,bus_stop,1,1,0
-2,Stop_2,bus_stop,2,2,0
-3,Stop_3,bus_stop,3,0,1
-4,Stop_4,bus_stop,4,1,1
-5,Stop_5,bus_stop,5,2,1
+0,Stop_0,bus_stop,0,0,2
+1,Stop_1,bus_stop,1,1,2
+2,Stop_2,bus_stop,2,2,2
+3,Stop_3,bus_stop,3,3,2
+4,Stop_4,bus_stop,4,4,2
+5,Stop_5,bus_stop,5,2,0
+6,Stop_6,bus_stop,6,2,1
+7,Stop_7,bus_stop,7,2,3
+8,Stop_8,bus_stop,8,2,4

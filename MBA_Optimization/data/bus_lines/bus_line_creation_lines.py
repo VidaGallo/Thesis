@@ -79,8 +79,8 @@ def create_test_data_cross(n_stops=5, output_folder="data"):
     df_stops = pd.DataFrame(df_stops_list)
 
     # Save CSV files
-    output_routes = f"{output_folder}/cross_lines.csv"
-    output_stops = f"{output_folder}/cross_stops.csv"
+    output_routes = f"{output_folder}/line_lines.csv"
+    output_stops = f"{output_folder}/line_stops.csv"
 
     print(f"Saving routes to {output_routes} ...")
     df_routes.to_csv(output_routes, index=False)
@@ -92,35 +92,10 @@ def create_test_data_cross(n_stops=5, output_folder="data"):
 
 
 
-def plot_transit_data(df_routes, df_stops, title="Transit Lines"):
-    """
-    Plot transit lines and stops.
-    df_routes: DataFrame with 'geometry' column in WKT LINESTRING format
-    df_stops: DataFrame with 'lon' and 'lat' columns
-    """
-    plt.figure(figsize=(6, 6))
-
-    # Plot each line
-    for _, row in df_routes.iterrows():
-        coords_text = row['geometry'].replace("LINESTRING (", "").replace(")", "")
-        coords = [list(map(float, p.split())) for p in coords_text.split(", ")]
-        xs, ys = zip(*coords)
-        plt.plot(xs, ys, marker='o', label=row['name'])
-
-    # Plot stops
-    plt.scatter(df_stops['lon'], df_stops['lat'], color='red', zorder=5)
-
-    plt.title(title)
-    plt.xlabel("X")
-    plt.ylabel("Y")
-    plt.legend()
-    plt.grid(True)
-    plt.show()
 
 
 
-
-def create_cross_graph(output_folder="data"):
+def create_lines_graph(output_folder="data"):
     """
     Build a NetworkX graph of stops:
     - Each stop is a node
@@ -130,7 +105,7 @@ def create_cross_graph(output_folder="data"):
     # Load cross dataset
     df_routes, df_stops = create_test_data_cross(output_folder=output_folder)
 
-    G = nx.DiGraph()  # directed graph (can later add travel times)
+    G = nx.Graph()   # directed graph (can later add travel times)
 
     # Add nodes
     for _, row in df_stops.iterrows():
@@ -148,7 +123,7 @@ def create_cross_graph(output_folder="data"):
         # Add consecutive edges with weight=1
         for u, v in zip(stop_ids_line[:-1], stop_ids_line[1:]):
             G.add_edge(u, v, weight=1)
-            G.add_edge(v, u, weight=1)  # bidirectional
+            
 
     # Save graph
     graph_file = f"{output_folder}/line_graph.gpickle"
@@ -159,7 +134,64 @@ def create_cross_graph(output_folder="data"):
     return G, df_routes, df_stops
 
 
+def create_rebalancing_graph(G_lines, df_routes, df_stops, speed_kmh=30, save_path=None):
+    """
+    Create a rebalancing graph connecting terminals and junctions.
+    - G_lines: grafo delle linee (bidirezionale)
+    - df_routes, df_stops: dataset delle linee e delle fermate
+    - speed_kmh: velocità per calcolo travel_time
+    - save_path: percorso per salvare il grafo
+    Returns: G_reb (grafo diretto dei rebalancing)
+    """
+    import math
+    speed_m_per_min = (speed_kmh * 1000) / 60  # m/min
 
+    # --- Identifica terminal e junction ---
+    line_nodes = {}
+    for _, row in df_routes.iterrows():
+        coords_text = row['geometry'].replace("LINESTRING (", "").replace(")", "")
+        coords = [tuple(map(float, c.split())) for c in coords_text.split(", ")]
+        line_nodes[row['ref']] = coords
+
+    # Terminal = primi e ultimi nodi di ciascuna linea
+    T = set()
+    for nodes in line_nodes.values():
+        T.add(nodes[0])
+        T.add(nodes[-1])
+
+    # Junction = nodi condivisi da ≥2 linee
+    from collections import defaultdict
+    node_count = defaultdict(int)
+    for nodes in line_nodes.values():
+        for n in nodes:
+            node_count[n] += 1
+    J = set(n for n, cnt in node_count.items() if cnt >= 2)
+
+    # Nodi speciali = terminal + junction
+    special_nodes = T.union(J)
+
+    # --- Costruisci grafo di rebalancing ---
+    G_reb = nx.DiGraph()
+    for n in special_nodes:
+        stop_info = df_stops[df_stops['stop_id'] == n].iloc[0]
+        G_reb.add_node(n, lon=stop_info['lon'], lat=stop_info['lat'])
+
+    # Aggiungi archi tra tutti i nodi speciali
+    for u in special_nodes:
+        for v in special_nodes:
+            if u != v:
+                u_data = G_reb.nodes[u]
+                v_data = G_reb.nodes[v]
+                dist = math.hypot(v_data['lon'] - u_data['lon'], v_data['lat'] - u_data['lat'])
+                travel_time = dist / speed_m_per_min
+                G_reb.add_edge(u, v, travel_time=travel_time)
+
+    if save_path:
+        with open(save_path, "wb") as f:
+            pickle.dump(G_reb, f)
+        print(f"Rebalancing graph saved in {save_path}")
+
+    return G_reb, T, J
 
 
 
@@ -167,7 +199,14 @@ if __name__ == "__main__":
     # === Generate test dataset ===
     print("Generating test dataset...")
     df_routes, df_stops = create_test_data_cross(n_stops=3, output_folder="data/bus_lines/") 
-    G, df_routes, df_stops = create_cross_graph(output_folder="data/bus_lines/")
+    G_lines, df_routes, df_stops = create_lines_graph(output_folder="data/bus_lines/")
 
-    # === Visualize generated lines and stops ===
-    plot_transit_data(df_routes, df_stops, title="Cross Transit Network")
+    # Crea grafo di rebalancing
+    G_reb, T, J = create_rebalancing_graph(
+        G_lines,
+        df_routes,
+        df_stops,
+        speed_kmh=30,
+        save_path="data/bus_lines/line_rebalancing_graph.gpickle"
+    )
+

@@ -107,7 +107,7 @@ def create_grid_test_data_connected(n_lines=3, n_stops=5, grid_size=5, output_fo
     df_stops.to_csv(output_stops, index=False)
 
     # === Graph ===
-    G = nx.DiGraph()
+    G = nx.Graph()
     for _, row in df_stops.iterrows():
         G.add_node(row['stop_id'], lon=row['lon'], lat=row['lat'])
 
@@ -117,7 +117,6 @@ def create_grid_test_data_connected(n_lines=3, n_stops=5, grid_size=5, output_fo
         stop_ids_line = [coord_to_stop_id[tuple(map(float, c.split()))] for c in coords_text.split(", ")]
         for u, v in zip(stop_ids_line[:-1], stop_ids_line[1:]):
             G.add_edge(u, v, weight=1)
-            G.add_edge(v, u, weight=1)
 
     return df_routes, df_stops, G
 
