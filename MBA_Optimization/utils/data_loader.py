@@ -3,6 +3,7 @@ from collections import defaultdict
 import networkx as nx
 import math
 import pickle
+import json
 
 
 def load_sets(lines_csv, stops_csv, G_lines=None):
@@ -93,15 +94,63 @@ def load_sets(lines_csv, stops_csv, G_lines=None):
         V, T, J, A, R, N = V_new, T_new, J_new, A_new, R_new, N_new
 
     return {
-        'L': L,
-        'V': V,
-        'S': S,
-        'J': J,
-        'T': T,
-        'A': A,
-        'R': R,
-        'N': N
+        'L': L,   # insieme delle linee della rete (line IDs)
+        'V': V,   # insieme di tutti i nodi della rete (fermate)
+        'S': S,   # insieme delle fermate ordinarie (non giunzioni né terminali)
+        'J': J,   # insieme delle giunzioni (nodi presenti in ≥2 linee)
+        'T': T,   # insieme dei terminali (inizio/fine di ogni linea)
+        'A': A,   # insieme degli archi della rete per ogni linea (i,j,line_ref)
+        'R': R,   # insieme degli archi di ribilanciamento tra terminali e giunzioni
+        'N': N    # dizionario: line_ref -> lista dei segmenti (tuple di nodi) tra giunzioni/terminali
     }
+
+
+
+def load_requests(requests_csv, data):
+    """
+    Carica le richieste da CSV e costruisce K, p e Pk per il MILP.
+    
+    Parameters:
+    requests_csv : Percorso al CSV delle richieste.
+    data: Dizionario contenente  'N' e 'L'
+    
+    Returns:
+    K : Lista ID richieste.
+    p : Passeggeri per richiesta {k: p_k}.
+    Pk : Archi del percorso per richiesta {k: [(i,j,ℓ,h), ...]}.
+    """
+    df_requests = pd.read_csv(requests_csv)
+    
+    K = df_requests['request_id'].tolist()
+    p = dict(zip(df_requests['request_id'], df_requests['avg_passengers_per_time_unit']))
+    
+    Pk = {}
+    N = data['N']
+    L = data['L']
+    
+    for _, row in df_requests.iterrows():
+        k = row['request_id']
+        path_nodes = json.loads(row['path_nodes'])
+        Pk[k] = []
+        
+        for i in range(len(path_nodes)-1):
+            u, v = path_nodes[i], path_nodes[i+1]
+            found = False
+            
+            # mappa l'arco (u,v) su linea ℓ e segmento h
+            for ℓ in L:
+                for h, seg in enumerate(N[ℓ]):
+                    if u in seg and v in seg:
+                        Pk[k].append((u, v, ℓ, h))
+                        found = True
+                        break
+                if found:
+                    break
+            if not found:
+                raise ValueError(f"Arco ({u},{v}) della richiesta {k} non trovato in alcun segmento delle linee disponibili")
+    
+    return K, p, Pk
+
 
 
 def assign_travel_times(G, speed_kmh=30):
@@ -125,25 +174,50 @@ def assign_travel_times(G, speed_kmh=30):
 
     return G
 
+def compute_segment_travel_times(N, G_lines):
+    """
+    Restituisce dizionario t[(l,h)] = travel time segmento h della linea l.
+    """
+    t = {}
+    for l, seg_list in N.items():
+        for h, seg in enumerate(seg_list):
+            seg_time = 0
+            for i in range(len(seg)-1):
+                u, v = seg[i], seg[i+1]
+                if G_lines.has_edge(u,v):
+                    seg_time += G_lines[u][v].get('travel_time', 1)  # default 1 se non c'è
+                else:
+                    seg_time += 1
+            t[l,h] = seg_time
+    return t
 
 
 
+
+
+
+
+
+
+# === FOR TEST ONLY! WILL BE USED IN MAIN ===
 if __name__ == "__main__":
+
     # --- Lines ---
     data_sets_lines = load_sets(
         lines_csv="data/bus_lines/cross/cross_bus_lines.csv",
-        stops_csv="data/bus_lines/cross_bus_stops.csv"
+        stops_csv="data/bus_lines/cross/cross_bus_stops.csv"
     )
-    with open("data/bus_lines/cross/cross_bus_line_graph.gpickle", "rb") as f:
+    with open("data/bus_lines/cross/cross_bus_lines_graph.gpickle", "rb") as f:
         G_lines = pickle.load(f)
     with open("data/bus_lines/cross/cross_rebalancing_graph.gpickle", "rb") as f:
         G_reb = pickle.load(f)
     G_lines = assign_travel_times(G_lines, speed_kmh=35)
     G_reb = assign_travel_times(G_reb, speed_kmh=40)
-    with open("data/bus_lines/cross/cross_bus_line_graph.gpickle", "wb") as f:
+    with open("data/bus_lines/cross/cross_bus_lines_graph.gpickle", "wb") as f:
         pickle.dump(G_lines, f)
     with open("data/bus_lines/cross/cross_rebalancing_graph.gpickle", "wb") as f:
         pickle.dump(G_reb, f)
+
 
     # --- Grid ---
     data_sets_grid = load_sets(
@@ -161,10 +235,11 @@ if __name__ == "__main__":
     with open("data/bus_lines/grid/grid_rebalancing_graph.gpickle", "wb") as f:
         pickle.dump(G_reb, f)
 
+
     # --- City ---
     city_name = "Turin"
     data_sets_city = load_sets(
-        lines_csv=f"data/bus_lines/city/city_{city_name}_bus_lines_graph.csv",
+        lines_csv=f"data/bus_lines/city/city_{city_name}_bus_lines.csv",
         stops_csv=f"data/bus_lines/city/city_{city_name}_bus_stops.csv"
     )
     with open(f"data/bus_lines/city/city_{city_name}_bus_lines_graph.gpickle", "rb") as f:

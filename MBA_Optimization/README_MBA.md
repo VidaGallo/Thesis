@@ -16,14 +16,13 @@ MBA_Optimization/
 |                               # le linee degli autobus sono un grafo e si cerca lo shortest path
 |
 ├── models/  
-│   └── mba_ilp.py          # definizione modello ILP   
+│   └── model_mba_BASE.py          # definizione modello ILP   
 │  
 ├── utils/  
-│   └── data_loader.py      # caricamento dati 
-│                           # lines,  grid,  city  
+│   │── data_loader.py      # caricamento dati  (lines,  grid,  city)
+│   └── save_results.py                          
 |
-├── results/  
-│   └── solutions.csv            # output dei risultati dell’ottimizzazione  
+├── results/                # output dei risultati dell’ottimizzazione  
 │  
 │── main_lines.py                # script principale per lines
 │── main_grid.py                 # script principale per grid
