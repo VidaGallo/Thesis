@@ -5,36 +5,29 @@ import math
 import pickle
 
 
-
-
-
 def load_sets(lines_csv, stops_csv, G_lines=None):
     """
-    Load transit network data and create sets needed for ILP.
-    If G_lines is provided, nodes' coordinates are taken from the graph.
+    Load transit network data and create sets for ILP.
+    Assumes 'geometry' column in lines CSV is a list of ints (stop_ids).
     Returns sets: L, V, S, J, T, A, R, N
     """
     df_lines = pd.read_csv(lines_csv)
     df_stops = pd.read_csv(stops_csv)
 
-
     # === Lines ===
     L = set(df_lines['ref'])
-
 
     # === Nodes per line ===
     line_nodes = {}
     for _, row in df_lines.iterrows():
-        coords_text = row['geometry'].replace("LINESTRING (", "").replace(")", "")
-        coords = [tuple(map(float, p.split())) for p in coords_text.split(", ")]
-        line_nodes[row['ref']] = coords
-
+        # 'geometry' is already list of ints
+        nodes_list = eval(row['geometry']) if isinstance(row['geometry'], str) else row['geometry']
+        line_nodes[row['ref']] = nodes_list
 
     # === All nodes ===
     V = set()
     for nodes in line_nodes.values():
         V.update(nodes)
-
 
     # === Count appearances → junctions ===
     node_count = defaultdict(int)
@@ -43,24 +36,20 @@ def load_sets(lines_csv, stops_csv, G_lines=None):
             node_count[node] += 1
     J = set(node for node, cnt in node_count.items() if cnt >= 2)
 
-
     # === Terminals ===
     T = set()
     for nodes in line_nodes.values():
         T.add(nodes[0])
         T.add(nodes[-1])
 
-
     # === Ordinary stops ===
     S = V - J - T
-
 
     # === Line arcs ===
     A = set()
     for line_ref, nodes in line_nodes.items():
         for i in range(len(nodes)-1):
             A.add((nodes[i], nodes[i+1], line_ref))
-
 
     # === Rebalancing arcs ===
     R_nodes = list(T.union(J))
@@ -70,7 +59,6 @@ def load_sets(lines_csv, stops_csv, G_lines=None):
             if i != j:
                 R.add((R_nodes[i], R_nodes[j]))
 
-
     # === Segments N ===
     N = {}  # dict: line_ref -> list of segments
     for line_ref, nodes in line_nodes.items():
@@ -78,33 +66,30 @@ def load_sets(lines_csv, stops_csv, G_lines=None):
         current_seg = [nodes[0]]
         for node in nodes[1:]:
             current_seg.append(node)
-            # close segment if junction or terminal
             if node in J or node in T:
                 seg_list.append(tuple(current_seg))
-                current_seg = [node]  # start new segment from here
-        if len(current_seg) > 1:  # if something remains
+                current_seg = [node]
+        if len(current_seg) > 1:
             seg_list.append(tuple(current_seg))
         N[line_ref] = seg_list
 
-
-    # === Optional: use G_lines to attach coordinates ===
+    # === Optional: map to G_lines if provided ===
     if G_lines is not None:
-        coord_to_stop = { (data['lon'], data['lat']): n for n, data in G_lines.nodes(data=True) }
+        # If nodes in V are not already G_lines nodes, map them
         V_new, T_new, J_new, A_new, R_new = set(), set(), set(), set(), set()
         N_new = {}
         for v in V:
-            V_new.add(coord_to_stop.get(v, v))
+            V_new.add(v if v in G_lines.nodes else v)
         for t in T:
-            T_new.add(coord_to_stop.get(t, t))
+            T_new.add(t if t in G_lines.nodes else t)
         for j in J:
-            J_new.add(coord_to_stop.get(j, j))
+            J_new.add(j if j in G_lines.nodes else j)
         for u, v, l in A:
-            A_new.add((coord_to_stop.get(u, u), coord_to_stop.get(v, v), l))
+            A_new.add((u if u in G_lines.nodes else u, v if v in G_lines.nodes else v, l))
         for u, v in R:
-            R_new.add((coord_to_stop.get(u, u), coord_to_stop.get(v, v)))
-        # Segments with mapped nodes
+            R_new.add((u if u in G_lines.nodes else u, v if v in G_lines.nodes else v))
         for line_ref, seg_list in N.items():
-            N_new[line_ref] = [tuple(coord_to_stop.get(n, n) for n in seg) for seg in seg_list]
+            N_new[line_ref] = [tuple(n for n in seg) for seg in seg_list]
         V, T, J, A, R, N = V_new, T_new, J_new, A_new, R_new, N_new
 
     return {
@@ -115,23 +100,20 @@ def load_sets(lines_csv, stops_csv, G_lines=None):
         'T': T,
         'A': A,
         'R': R,
-        'N': N  
+        'N': N
     }
 
 
-
-# === Assign travel times to archs along bus lines/rebalancing archs ===
 def assign_travel_times(G, speed_kmh=30):
     """
-    Assign travel time (in minutes) to edges of a graph.
+    Assign travel time (minutes) to edges in a graph.
+    Uses 'length' if available, otherwise Euclidean distance.
     """
     speed_m_per_min = speed_kmh * 1000 / 60  # m/min
 
     for u, v, data in G.edges(data=True):
-        # 1. Use 'length' if available
         if 'length' in data:
             travel_time = data['length'] / speed_m_per_min
-        # 2. Otherwise, use Euclidean distance if coordinates exist
         elif 'lon' in G.nodes[u] and 'lon' in G.nodes[v]:
             x1, y1 = G.nodes[u]['lon'], G.nodes[u]['lat']
             x2, y2 = G.nodes[v]['lon'], G.nodes[v]['lat']
@@ -146,65 +128,52 @@ def assign_travel_times(G, speed_kmh=30):
 
 
 
+if __name__ == "__main__":
+    # --- Lines ---
+    data_sets_lines = load_sets(
+        lines_csv="data/bus_lines/cross/cross_bus_lines.csv",
+        stops_csv="data/bus_lines/cross_bus_stops.csv"
+    )
+    with open("data/bus_lines/cross/cross_bus_line_graph.gpickle", "rb") as f:
+        G_lines = pickle.load(f)
+    with open("data/bus_lines/cross/cross_rebalancing_graph.gpickle", "rb") as f:
+        G_reb = pickle.load(f)
+    G_lines = assign_travel_times(G_lines, speed_kmh=35)
+    G_reb = assign_travel_times(G_reb, speed_kmh=40)
+    with open("data/bus_lines/cross/cross_bus_line_graph.gpickle", "wb") as f:
+        pickle.dump(G_lines, f)
+    with open("data/bus_lines/cross/cross_rebalancing_graph.gpickle", "wb") as f:
+        pickle.dump(G_reb, f)
 
-### Lines
-# Create sets (L, A, ...)
-data_sets_lines = load_sets(
-    lines_csv="data/bus_lines/line_lines.csv",
-    stops_csv="data/bus_lines/line_stops.csv"
-)
-# Assign travel times to bus line graph and rebalancing graph
-with open("data/bus_lines/line_graph.gpickle", "rb") as f:
-    G_lines = pickle.load(f)
-with open("data/bus_lines/line_rebalancing_graph.gpickle", "rb") as f:
-    G_reb = pickle.load(f)
-G_lines = assign_travel_times(G_lines, speed_kmh=35)  # average bus speed
-G_reb = assign_travel_times(G_reb, speed_kmh=40)  # average rebalancing speed
+    # --- Grid ---
+    data_sets_grid = load_sets(
+        lines_csv="data/bus_lines/grid/grid_bus_lines.csv",
+        stops_csv="data/bus_lines/grid/grid_bus_stops.csv"
+    )
+    with open("data/bus_lines/grid/grid_bus_lines_graph.gpickle", "rb") as f:
+        G_lines = pickle.load(f)
+    with open("data/bus_lines/grid/grid_rebalancing_graph.gpickle", "rb") as f:
+        G_reb = pickle.load(f)
+    G_lines = assign_travel_times(G_lines, speed_kmh=35)
+    G_reb = assign_travel_times(G_reb, speed_kmh=40)
+    with open("data/bus_lines/grid/grid_bus_lines_graph.gpickle", "wb") as f:
+        pickle.dump(G_lines, f)
+    with open("data/bus_lines/grid/grid_rebalancing_graph.gpickle", "wb") as f:
+        pickle.dump(G_reb, f)
 
-# Save the new graph with time
-with open("data/bus_lines/line_graph.gpickle", "wb") as f:
-    pickle.dump(G_lines, f)
-with open("data/bus_lines/line_rebalancing_graph.gpickle", "wb") as f:
-    pickle.dump(G_reb, f)
-
-
-
-### Grid
-data_sets_grid = load_sets(
-    lines_csv="data/bus_lines/line_lines.csv",
-    stops_csv="data/bus_lines/line_stops.csv"
-)
-# Assign travel times to bus line graph and rebalancing graph
-with open("data/bus_lines/grid_graph.gpickle", "rb") as f:
-    G_lines = pickle.load(f)
-with open("data/bus_lines/grid_rebalancing_graph.gpickle", "rb") as f:
-    G_reb = pickle.load(f)
-G_lines = assign_travel_times(G_lines, speed_kmh=35)  # average bus speed
-G_reb = assign_travel_times(G_reb, speed_kmh=40)  # average rebalancing speed
-
-# Save the new graph with time
-with open("data/bus_lines/grid_graph.gpickle", "wb") as f:
-    pickle.dump(G_lines, f)
-with open("data/bus_lines/grid_rebalancing_graph.gpickle", "wb") as f:
-    pickle.dump(G_reb, f)
-
-
-
-### Graph
-data_sets_graph = load_sets(
-    lines_csv="data/bus_lines/graph_lines_Turin.csv",
-    stops_csv="data/bus_lines/graph_stops_Turin.csv"
-)
-# Assign travel times to bus line graph and rebalancing graph
-with open("data/bus_lines/city_graph.gpickle", "rb") as f:
-    G_lines = pickle.load(f)
-with open("data/bus_lines/graph_rebalancing_graph.gpickle", "rb") as f:
-    G_reb = pickle.load(f)
-G_lines = assign_travel_times(G_lines, speed_kmh=35)  # average bus speed
-G_reb = assign_travel_times(G_reb, speed_kmh=40)  # average rebalancing speed
-
-# Save the new graph with time
-with open("data/bus_lines/graph_graph.gpickle", "wb") as f:
-    pickle.dump(G_lines, f)
-with open("data/bus_lines/graph_rebalancing_graph.gpickle", "wb") as f:
-    pickle.dump(G_reb, f)
+    # --- City ---
+    city_name = "Turin"
+    data_sets_city = load_sets(
+        lines_csv=f"data/bus_lines/city/city_{city_name}_bus_lines_graph.csv",
+        stops_csv=f"data/bus_lines/city/city_{city_name}_bus_stops.csv"
+    )
+    with open(f"data/bus_lines/city/city_{city_name}_bus_lines_graph.gpickle", "rb") as f:
+        G_lines = pickle.load(f)
+    with open(f"data/bus_lines/city/city_{city_name}_rebalancing_graph.gpickle", "rb") as f:
+        G_reb = pickle.load(f)
+    G_lines = assign_travel_times(G_lines, speed_kmh=35)
+    G_reb = assign_travel_times(G_reb, speed_kmh=40)
+    with open(f"data/bus_lines/city/city_{city_name}_bus_lines_graph.gpickle", "wb") as f:
+        pickle.dump(G_lines, f)
+    with open(f"data/bus_lines/city/city_{city_name}_rebalancing_graph.gpickle", "wb") as f:
+        pickle.dump(G_reb, f)

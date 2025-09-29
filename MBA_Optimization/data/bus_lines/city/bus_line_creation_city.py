@@ -1,28 +1,23 @@
 import gurobipy
-
 import osmnx as ox
 import pandas as pd
 import random
 import networkx as nx
 import pickle
 import matplotlib.pyplot as plt
-import math
 from collections import defaultdict
+import os
 
 random.seed(123)
 
 ######################################
-# GENERATING FAKE LINE BUSES IN A CITY
+# GENERATE FAKE CITY BUS LINES
 ######################################
 def transit_data_city(city, n_lines=2, n_stops=8, network_type="drive"):
-    """
-    Creates fake bus lines on the street network of a city (ex. Turin),
-    ensuring that the resulting transit network is connected (each new line
-    intersects at least one existing line).
-    """
-    # === City graph ===
-    G = ox.graph_from_place(city, network_type=network_type)
-    G = ox.project_graph(G)
+    os.makedirs("data/bus_lines/city", exist_ok=True)
+
+    G_city = ox.graph_from_place(city, network_type=network_type)
+    G_city = ox.project_graph(G_city)
 
     df_routes_list = []
     df_stops_list = []
@@ -30,7 +25,7 @@ def transit_data_city(city, n_lines=2, n_stops=8, network_type="drive"):
     used_nodes = set()
 
     # Centrality for intersections
-    centrality = nx.betweenness_centrality(G, weight="length")
+    centrality = nx.betweenness_centrality(G_city, weight="length")
     top_k = 10
     top_nodes = sorted(centrality, key=centrality.get, reverse=True)[:top_k]
 
@@ -45,49 +40,49 @@ def transit_data_city(city, n_lines=2, n_stops=8, network_type="drive"):
         stops = [start_node]
         current_node = start_node
         used_nodes.add(start_node)
+        stop_ids_line = []
 
         while len(stops) < n_stops:
-            neighbors = list(G.neighbors(current_node))
+            neighbors = list(G_city.neighbors(current_node))
             if not neighbors:
                 break
             weights = [2 if n in used_nodes else 1 for n in neighbors]
             next_node = random.choices(neighbors, weights=weights, k=1)[0]
-            dist = nx.shortest_path_length(G, stops[-1], next_node, weight="length")
-            if dist >= min_dist:
-                stops.append(next_node)
-                current_node = next_node
-                used_nodes.add(next_node)
-            else:
-                current_node = next_node
+            stops.append(next_node)
+            current_node = next_node
+            used_nodes.add(next_node)
 
-        # Save line
-        geometry_str = "LINESTRING (" + ", ".join([f"{G.nodes[n]['x']} {G.nodes[n]['y']}" for n in stops]) + ")"
-        df_routes_list.append({"route":"bus", "ref":str(line_idx), "name":f"Line {line_idx}", "geometry":geometry_str})
-
-        # Save stops
+        # Add stops to df_stops_list
         for n in stops:
             df_stops_list.append({
                 "stop_id": stop_id,
-                "name": f"Stop_{stop_id}",
+                "name": stop_id,       # integer name
                 "type": "bus_stop",
-                "node": n,
-                "lon": G.nodes[n]['x'],
-                "lat": G.nodes[n]['y']
+                "node": stop_id,
+                "lon": G_city.nodes[n]['x'],
+                "lat": G_city.nodes[n]['y'],
+                "osm_node": n          # original OSM node
             })
+            stop_ids_line.append(stop_id)
             stop_id += 1
+
+        # Save line as list of stop_id integers
+        df_routes_list.append({
+            "route": "bus",
+            "ref": str(line_idx),
+            "name": f"Line {line_idx}",
+            "geometry": stop_ids_line
+        })
 
     df_routes = pd.DataFrame(df_routes_list)
     df_stops = pd.DataFrame(df_stops_list)
 
-    # === Build undirected line graph ===
-    G_lines = nx.Graph()  
+    # Build undirected line graph
+    G_lines = nx.Graph()
     for _, row in df_stops.iterrows():
         G_lines.add_node(row['stop_id'], lon=row['lon'], lat=row['lat'])
-
-    coord_to_stop_id = {(row['lon'], row['lat']): row['stop_id'] for _, row in df_stops.iterrows()}
     for _, row in df_routes.iterrows():
-        coords_text = row['geometry'].replace("LINESTRING (", "").replace(")", "")
-        stop_ids_line = [coord_to_stop_id[tuple(map(float, c.split()))] for c in coords_text.split(", ")]
+        stop_ids_line = row['geometry']
         for u, v in zip(stop_ids_line[:-1], stop_ids_line[1:]):
             if not G_lines.has_edge(u, v):
                 G_lines.add_edge(u, v, weight=1, lines=set())
@@ -96,55 +91,45 @@ def transit_data_city(city, n_lines=2, n_stops=8, network_type="drive"):
     # Save CSVs
     city_clean = city.split(",")[0].replace(" ", "_")
     df_routes.to_csv(f"data/bus_lines/city/city_{city_clean}_bus_lines.csv", index=False)
-    df_stops.to_csv(f"data/bus_lines/city/city_{city_clean}_bus_stops_{city_clean}.csv", index=False)
+    df_stops.to_csv(f"data/bus_lines/city/city_{city_clean}_bus_stops.csv", index=False)
 
-    return df_routes, df_stops, G, G_lines
+    return df_routes, df_stops, G_city, G_lines
 
 
-
-# ==== CREATE REBALANCING GRAPH ===
+#########################
+# CREATE REBALANCING GRAPH
+#########################
 def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
-    """
-    Create a directed rebalancing graph connecting terminals and junctions.
-    Travel times will be assigned later.
-    """
-    # Identify terminals and junctions
-    line_nodes = {}
-    for _, row in df_routes.iterrows():
-        coords_text = row['geometry'].replace("LINESTRING (", "").replace(")", "")
-        coords = [tuple(map(float, c.split())) for c in coords_text.split(", ")]
-        line_nodes[row['ref']] = coords
+    # line_nodes: ref -> list of stop_id integers
+    line_nodes = {row['ref']: row['geometry'] for _, row in df_routes.iterrows()}
 
     # Terminals
-    T_coords = set()
+    T_nodes = set()
     for nodes in line_nodes.values():
-        T_coords.add(nodes[0])
-        T_coords.add(nodes[-1])
+        T_nodes.add(nodes[0])
+        T_nodes.add(nodes[-1])
 
     # Junctions
     node_count = defaultdict(int)
     for nodes in line_nodes.values():
         for n in nodes:
             node_count[n] += 1
-    J_coords = set(n for n, cnt in node_count.items() if cnt >= 2)
+    J_nodes = set(n for n, cnt in node_count.items() if cnt >= 2)
 
-    special_coords = T_coords.union(J_coords)
-    coord_to_stop_id = {(row['lon'], row['lat']): row['stop_id'] for _, row in df_stops.iterrows()}
-    special_nodes = set(coord_to_stop_id[c] for c in special_coords)
+    special_nodes = T_nodes.union(J_nodes)
 
-    # Build directed graph
     G_reb = nx.DiGraph()
     for n in special_nodes:
         stop_info = df_stops[df_stops['stop_id']==n].iloc[0]
         G_reb.add_node(n, lon=stop_info['lon'], lat=stop_info['lat'])
 
-    # Add all possible arcs between special nodes (travel time will be assigned later)
     for u in special_nodes:
         for v in special_nodes:
             if u != v:
                 G_reb.add_edge(u, v)
 
     if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
         with open(save_path, "wb") as f:
             pickle.dump(G_reb, f)
         print(f"Rebalancing graph saved as {save_path}")
@@ -152,21 +137,19 @@ def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
     return G_reb
 
 
-
-
-# === PLOT FUNCTION ===
+#########################
+# PLOT FUNCTION
+#########################
 def plot_transit_graph(G_city, G_lines, G_reb, df_routes, df_stops, title="Transit Lines + Rebalancing"):
-    """
-    Plot the transit lines and stops on the city graph,
-    including rebalancing arcs as green arrows.
-    """
     fig, ax = ox.plot_graph(G_city, show=False, close=False, node_size=0, edge_color='lightgray', edge_linewidth=0.5)
-    
+
     colors = plt.cm.get_cmap('tab10', len(df_routes))
 
     for idx, row in df_routes.iterrows():
-        coords_text = row['geometry'].replace("LINESTRING (", "").replace(")", "")
-        coords = [list(map(float, p.split())) for p in coords_text.split(", ")]
+        stop_ids_line = row['geometry']
+        coords = [(df_stops[df_stops['stop_id']==n]['lon'].values[0],
+                   df_stops[df_stops['stop_id']==n]['lat'].values[0])
+                  for n in stop_ids_line]
         xs, ys = zip(*coords)
         ax.plot(xs, ys, color=colors(idx), linewidth=2, label=row['name'])
 
@@ -184,18 +167,15 @@ def plot_transit_graph(G_city, G_lines, G_reb, df_routes, df_stops, title="Trans
     plt.show()
 
 
-
-
-
-
+#########################
+# MAIN
+#########################
 if __name__ == "__main__":
     city_name = "Turin, Italy"
     city_clean = city_name.split(",")[0].strip()
     print(f"Generating transit data for {city_name}...")
 
-    df_routes, df_stops, G_city, G_lines = transit_data_city(
-        city=city_name, n_lines=5, n_stops=15
-    )
+    df_routes, df_stops, G_city, G_lines = transit_data_city(city=city_name, n_lines=5, n_stops=15)
 
     G_reb = create_rebalancing_graph(
         G_lines,
@@ -206,9 +186,8 @@ if __name__ == "__main__":
 
     plot_transit_graph(G_city, G_lines, G_reb, df_routes, df_stops, title="Transit Lines + Rebalancing")
 
-    # Save line graph
+    # Save line and city graphs
     with open(f"data/bus_lines/city/city_{city_clean}_bus_lines_graph.gpickle", "wb") as f:
         pickle.dump(G_lines, f)
-    # Save city graph
     with open(f"data/bus_lines/city/city_{city_clean}_street_graph.gpickle", "wb") as f:
         pickle.dump(G_city, f)
