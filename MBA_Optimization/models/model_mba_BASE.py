@@ -23,7 +23,7 @@ class MBA_ILP_BASE:
         d = self.data
         L, N, K, Pk, p, Q, t = d["L"], d["N"], d["K"], d["Pk"], d["p"], d["Q"], d["t"]
 
-        # Variabili
+        # === Variabili ===
         x = {}  # x_{kijℓ}
         for k in K:
             for (i, j, l, h) in Pk[k]:  # Pk[k] contiene archi con sezione associata
@@ -31,18 +31,18 @@ class MBA_ILP_BASE:
 
         w = {}  # w_{ℓh}
         for l in L:
-            for h in N[l]:
+            for h, seg in enumerate(N[l]):
                 w[l, h] = self.model.addVar(vtype=GRB.INTEGER, lb=0, name=f"w_{l}_{h}")
 
         self.model.update()
 
-        # Obiettivo
+        # === Obiettivo ===
         self.model.setObjective(
-            quicksum(t[l, h] * w[l, h] for l in L for h in N[l]),
+            quicksum(t[l, h] * w[l, h] for l in L for h, seg in enumerate(N[l])),
             GRB.MINIMIZE
         )
 
-        # Vincoli: ogni richiesta deve scegliere un percorso
+        # === Vincoli: ogni richiesta deve scegliere un percorso ===
         for k in K:
             for (i, j) in {(i, j) for (i, j, l, h) in Pk[k]}:
                 self.model.addConstr(
@@ -50,16 +50,19 @@ class MBA_ILP_BASE:
                     name=f"path_{k}_{i}_{j}"
                 )
 
-        # Vincoli: capacità moduli
+        # === Vincoli: capacità moduli ===
         for l in L:
-            for h in N[l]:
-                for (i, j, ll, hh) in [(i, j, ll, hh) for k in K for (i, j, ll, hh) in Pk[k] if ll == l and hh == h]:
-                    self.model.addConstr(
-                        quicksum(p[k] * x[k, i, j, l, h] for k in K if (i, j, l, h) in Pk[k]) <= Q * w[l, h],
-                        name=f"capacity_{l}_{h}_{i}_{j}"
-                    )
+            for h, seg in enumerate(N[l]):
+                self.model.addConstr(
+                    quicksum(p[k] * x[k, i, j, l, h] 
+                            for k in K 
+                            for (i, j, ll, hh) in Pk[k] if ll == l and hh == h) 
+                    <= Q * w[l, h],
+                    name=f"capacity_{l}_{h}"
+                )
 
         self.model.update()
+
 
     def solve(self):
         self.model.optimize()

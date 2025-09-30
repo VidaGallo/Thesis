@@ -1,5 +1,5 @@
-from utils.data_loader import *
-from utils.save_results import *
+from utils.f_for_data import *
+from utils.f_for_results import *
 from models.model_mba_BASE import *
 import pandas as pd
 import json
@@ -60,7 +60,11 @@ if __name__ == "__main__":
     results_folder = "results"
     prefix = "cross_BASE"
     x_sol, w_sol = mba.get_solution()
+    print("get solution")
+    plot_bus_network(data['N'], w_sol, x_sol=x_sol, show_passengers=True)
+    print("plot solution")
     save_results(results_folder, prefix, x_sol, w_sol, data)
+    print("save results")
 
 
 

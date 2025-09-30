@@ -59,7 +59,7 @@ df_stops = pd.read_csv("data/bus_lines/cross/cross_bus_stops.csv")
 df_lines = pd.read_csv("data/bus_lines/cross/cross_bus_lines.csv")
 generate_requests_graph(
     df_stops, df_lines, G_lines,
-    n_requests=15,
+    n_requests=50,
     output_csv="data/demands/cross_mobility_requests.csv"
 )
 
