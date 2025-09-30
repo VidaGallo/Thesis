@@ -1,4 +1,4 @@
-stop_id,name,type,node,lon,lat
+stop_id,name,type,node,x,y
 0,0,bus_stop,0,1,5
 1,1,bus_stop,1,2,5
 2,2,bus_stop,2,3,5

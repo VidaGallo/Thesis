@@ -11,9 +11,10 @@ import numpy as np
 random.seed(123)
 np.random.seed(123)
 
-#########################
-# CREATE GRID TEST DATA
-#########################
+
+
+# === CREATE GRID TEST DATA ===
+# Creazione di linee di autobus disposte su una GRIGLIA
 def create_grid_test_data(n_lines=4, n_stops=5, grid_size=5):
     """
     Generate a grid-like transit network:
@@ -29,7 +30,7 @@ def create_grid_test_data(n_lines=4, n_stops=5, grid_size=5):
     stop_positions = {}  # map (x,y) -> node_id
     line_nodes = {}
     node_id = 0
-    directions = [(1,0), (-1,0), (0,1), (0,-1)]
+    directions = [(1,0), (-1,0), (0,1), (0,-1)]  # mosse possibili (dx, sx, su, giù)
 
     line_idx = 1
     max_retries = 200
@@ -80,8 +81,8 @@ def create_grid_test_data(n_lines=4, n_stops=5, grid_size=5):
                     "name": node_id,
                     "type": "bus_stop",
                     "node": node_id,
-                    "lon": x,
-                    "lat": y
+                    "x": x,
+                    "y": y
                 })
                 node_id += 1
             node_ids_line.append(stop_positions[(x, y)])
@@ -105,27 +106,29 @@ def create_grid_test_data(n_lines=4, n_stops=5, grid_size=5):
     return df_routes, df_stops
 
 
-#########################
-# CREATE GRID GRAPH
-#########################
+
+# === CREATE GRID GRAPH ===
 def create_grid_graph(df_routes, df_stops, save_path="data/bus_lines/grid/grid_bus_lines_graph.gpickle"):
     """
-    Build a NetworkX graph for the grid:
+    Build a NetworkX MULTIDIGRAPH for the grid:
     - Nodes are integers
     - Consecutive stops along lines are connected
     - Each edge has a 'length' attribute (euclidean distance)
     """
-    G = nx.Graph()
+    G = nx.MultiDiGraph()
     for _, row in df_stops.iterrows():
-        G.add_node(row['node'], lon=row['lon'], lat=row['lat'])
+        G.add_node(row['node'], x=row['x'], y=row['y'])
 
     for _, row in df_routes.iterrows():
         stop_ids_line = row['geometry']  # already list of ints
         for u, v in zip(stop_ids_line[:-1], stop_ids_line[1:]):
-            x1, y1 = G.nodes[u]['lon'], G.nodes[u]['lat']
-            x2, y2 = G.nodes[v]['lon'], G.nodes[v]['lat']
-            length = math.dist((x1, y1), (x2, y2))  # distanza euclidea
+            x1, y1 = G.nodes[u]['x'], G.nodes[u]['y']
+            x2, y2 = G.nodes[v]['x'], G.nodes[v]['y']
+            length = math.dist((x1, y1), (x2, y2))  # distanza euclidea sulla griglia
+
+            # aggiungo archi in entrambe le direzioni con attributo length
             G.add_edge(u, v, weight=1, length=length)
+            G.add_edge(v, u, weight=1, length=length)
 
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     with open(save_path, "wb") as f:
@@ -134,12 +137,10 @@ def create_grid_graph(df_routes, df_stops, save_path="data/bus_lines/grid/grid_b
     return G
 
 
-#########################
-# CREATE REBALANCING GRAPH
-#########################
+# === CREATE REBALANCING GRAPH ===
 def create_grid_rebalancing_graph(G, df_routes, df_stops, save_path="data/bus_lines/grid/grid_rebalancing_graph.gpickle"):
     """
-    Create directed rebalancing graph for terminals/junctions
+    Create directed MULTIDIGRAPH for terminals/junctions
     - Each edge has a 'length' attribute (euclidean distance)
     """
     line_nodes = {row['ref']: row['geometry'] for _, row in df_routes.iterrows()}
@@ -159,17 +160,19 @@ def create_grid_rebalancing_graph(G, df_routes, df_stops, save_path="data/bus_li
 
     special_nodes = T_nodes.union(J_nodes)
 
-    G_reb = nx.DiGraph()
+    G_reb = nx.MultiDiGraph()
     for n in special_nodes:
-        stop_info = df_stops[df_stops['node']==n].iloc[0]
-        G_reb.add_node(n, lon=stop_info['lon'], lat=stop_info['lat'])
+        stop_info = df_stops[df_stops['node'] == n].iloc[0]
+        G_reb.add_node(n, x=stop_info['x'], y=stop_info['y'])
 
     for u in special_nodes:
         for v in special_nodes:
             if u != v:
-                x1, y1 = G_reb.nodes[u]['lon'], G_reb.nodes[u]['lat']
-                x2, y2 = G_reb.nodes[v]['lon'], G_reb.nodes[v]['lat']
+                x1, y1 = G_reb.nodes[u]['x'], G_reb.nodes[u]['y']
+                x2, y2 = G_reb.nodes[v]['x'], G_reb.nodes[v]['y']
                 length = math.dist((x1, y1), (x2, y2))
+
+                # aggiungo arco diretto con length
                 G_reb.add_edge(u, v, weight=1, length=length)
 
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -180,28 +183,28 @@ def create_grid_rebalancing_graph(G, df_routes, df_stops, save_path="data/bus_li
     return G_reb
 
 
-#########################
-# PLOT GRID TRANSIT
-#########################
+
+
+# === PLOT GRID TRANSIT ===
 def plot_grid_transit(G_lines, G_reb, df_routes, df_stops, title="Grid Transit + Rebalancing"):
     plt.figure(figsize=(8,8))
     # Plot bus lines
     for _, row in df_routes.iterrows():
         stop_ids_line = row['geometry']
-        coords = [(df_stops[df_stops['node']==n]['lon'].values[0],
-                   df_stops[df_stops['node']==n]['lat'].values[0]) for n in stop_ids_line]
+        coords = [(df_stops[df_stops['node']==n]['x'].values[0],
+                   df_stops[df_stops['node']==n]['y'].values[0]) for n in stop_ids_line]
         xs, ys = zip(*coords)
         plt.plot(xs, ys, marker='o', label=row['name'], linewidth=2)
 
     # Plot all stops
-    xs = [row['lon'] for _, row in df_stops.iterrows()]
-    ys = [row['lat'] for _, row in df_stops.iterrows()]
+    xs = [row['x'] for _, row in df_stops.iterrows()]
+    ys = [row['y'] for _, row in df_stops.iterrows()]
     plt.scatter(xs, ys, color='red', s=50, zorder=5, label="Stops")
 
     # Plot rebalancing arcs
     for u, v in G_reb.edges():
-        x1, y1 = G_reb.nodes[u]['lon'], G_reb.nodes[u]['lat']
-        x2, y2 = G_reb.nodes[v]['lon'], G_reb.nodes[v]['lat']
+        x1, y1 = G_reb.nodes[u]['x'], G_reb.nodes[u]['y']
+        x2, y2 = G_reb.nodes[v]['x'], G_reb.nodes[v]['y']
         plt.arrow(x1, y1, x2-x1, y2-y1, color='grey', alpha=0.5,
                   length_includes_head=True, head_width=0.1, head_length=0.1)
 
@@ -213,9 +216,8 @@ def plot_grid_transit(G_lines, G_reb, df_routes, df_stops, title="Grid Transit +
     plt.show()
 
 
-#########################
-# MAIN
-#########################
+
+# === MAIN ===
 if __name__ == "__main__":
     print("Generating grid test dataset...")
     df_routes, df_stops = create_grid_test_data(n_lines=4, n_stops=6, grid_size=8)
@@ -224,3 +226,4 @@ if __name__ == "__main__":
     G_reb = create_grid_rebalancing_graph(G_lines, df_routes, df_stops)
 
     plot_grid_transit(G_lines, G_reb, df_routes, df_stops, title="Grid Transit + Rebalancing")
+    print("Finish")

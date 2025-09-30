@@ -55,8 +55,8 @@ def generate_requests_graph(df_stops, G_lines, n_requests=20, output_csv=None):
 
 
 
-
-# === CROSS ===
+# === EXAMPLE TO USE IN MAIN ===
+### Cross
 with open("data/bus_lines/cross/cross_bus_lines_graph.gpickle", "rb") as f:
     G_lines = pickle.load(f)
 df_stops = pd.read_csv("data/bus_lines/cross/cross_bus_stops.csv")
@@ -66,7 +66,7 @@ generate_requests_graph(
     output_csv="data/demands/cross_mobility_requests.csv"
 )
 
-# === GRID ===
+### Grid
 with open("data/bus_lines/grid/grid_bus_lines_graph.gpickle", "rb") as f:
     G_lines = pickle.load(f)
 df_stops = pd.read_csv("data/bus_lines/grid/grid_bus_stops.csv")
@@ -76,7 +76,7 @@ generate_requests_graph(
     output_csv="data/demands/grid_mobility_requests.csv"
 )
 
-# === CITY ===
+### City
 city_name = "Turin, Italy"
 city_clean = city_name.split(",")[0].strip()
 graph_file = f"data/bus_lines/city/city_{city_clean}_bus_lines_graph.gpickle"

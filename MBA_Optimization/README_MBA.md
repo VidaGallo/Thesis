@@ -1,5 +1,5 @@
 ### 3 settings:
-- (1) Simple cross
+- (1) 2 Bus lines forming a cross
 - (2) Bus lines on a grid
 - (3) Bus lines on a city graph (not real lines, but generated randomply to test a more realistic setting)
 
@@ -31,7 +31,7 @@ MBA_Optimization/
 |                               # le linee degli autobus sono un grafo e si cerca lo shortest path
 |
 ├── models/  
-│   └── model_mba_BASE.py          # definizione modello ILP   
+│   └── models_mba.py          # definizione modello ILP   
 │  
 ├── utils/  
 │   │── f_for_data.py      # caricamento dati  (lines,  grid,  city)
@@ -51,7 +51,7 @@ MBA_Optimization/
 
 ### Additional Comments:
 - 2 graphs: 1 for bus lines, 1 for rebalancing archs
-- Graphs are saved as MultiDiGraphs() (multigraphs, directional) Each arch has a unique key = "bus line" 
+- Graphs are saved as MultiDiGraphs() => multigraphs, directional and each arch has a unique key = "bus line" 
 - The input info is saved usually as csv, the outputs instead as json
 
 

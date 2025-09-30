@@ -11,14 +11,26 @@ import math
 
 random.seed(123)
 
-######################################
+
+
 # GENERATE FAKE CITY BUS LINES
-######################################
+# Creazione di linee di autobus (fittizie) basandosi su un grafo esistente delle strade di una città (es. Torino)
 def transit_data_city(city, n_lines=2, n_stops=8, network_type="drive"):
     os.makedirs("data/bus_lines/city", exist_ok=True)
 
+    # === STEP 1: crea grafo OSM in coordinate geografiche ===
     G_city = ox.graph_from_place(city, network_type=network_type)
-    G_city = ox.project_graph(G_city)
+
+    # salvo lon/lat prima della proiezione
+    for n, data in G_city.nodes(data=True):
+        data['lon'] = data['x']   # longitudine (gradi)
+        data['lat'] = data['y']   # latitudine (gradi)
+
+    # === STEP 2: proietto il grafo in metri (per i calcoli) ===
+    G_proj = ox.project_graph(G_city)
+    for n, data in G_proj.nodes(data=True):
+        data['x_proj'] = data['x']  # metri
+        data['y_proj'] = data['y']  # metri
 
     df_routes_list = []
     df_stops_list = []
@@ -26,11 +38,12 @@ def transit_data_city(city, n_lines=2, n_stops=8, network_type="drive"):
     used_nodes = set()
 
     # Centrality for intersections
-    centrality = nx.betweenness_centrality(G_city, weight="length")
-    top_k = 10
+    # Per cercare di iniziare da nodi che sono "centrali" e avere la maggior parte delle linee autobus nel centro città
+    centrality = nx.betweenness_centrality(G_proj, weight="length")
+    top_k = 30
     top_nodes = sorted(centrality, key=centrality.get, reverse=True)[:top_k]
 
-    min_dist = 500
+    min_dist = 500    # distanza tra uno stop e il prossimo
 
     for line_idx in range(1, n_lines+1):
         if line_idx == 1:
@@ -44,7 +57,7 @@ def transit_data_city(city, n_lines=2, n_stops=8, network_type="drive"):
         stop_ids_line = []
 
         while len(stops) < n_stops:
-            neighbors = list(G_city.neighbors(current_node))
+            neighbors = list(G_proj.neighbors(current_node))
             if not neighbors:
                 break
             weights = [2 if n in used_nodes else 1 for n in neighbors]
@@ -60,8 +73,10 @@ def transit_data_city(city, n_lines=2, n_stops=8, network_type="drive"):
                 "name": stop_id,       # integer name
                 "type": "bus_stop",
                 "node": stop_id,
-                "lon": G_city.nodes[n]['x'],
-                "lat": G_city.nodes[n]['y'],
+                "lon": G_city.nodes[n]['lon'],     # per plot
+                "lat": G_city.nodes[n]['lat'],     # per plot
+                "x": G_proj.nodes[n]['x_proj'],    # per calcoli
+                "y": G_proj.nodes[n]['y_proj'],    # per calcoli
                 "osm_node": n          # original OSM node
             })
             stop_ids_line.append(stop_id)
@@ -81,14 +96,14 @@ def transit_data_city(city, n_lines=2, n_stops=8, network_type="drive"):
     # Build directed MULTIGRAPH for lines
     G_lines = nx.MultiDiGraph()
     for _, row in df_stops.iterrows():
-        G_lines.add_node(row['stop_id'], lon=row['lon'], lat=row['lat'])
+        G_lines.add_node(row['stop_id'], x=row['x'], y=row['y'], lon=row['lon'], lat=row['lat'])
     for _, row in df_routes.iterrows():
         stop_ids_line = row['geometry']
         for u, v in zip(stop_ids_line[:-1], stop_ids_line[1:]):
-            # calcolo solo la lunghezza euclidea
-            x1, y1 = G_lines.nodes[u]['lon'], G_lines.nodes[u]['lat']
-            x2, y2 = G_lines.nodes[v]['lon'], G_lines.nodes[v]['lat']
-            length = math.dist((x1, y1), (x2, y2))     # servità poi per calcolare il tempo di percorrenza
+            # calcolo la lunghezza euclidea in metri
+            x1, y1 = G_lines.nodes[u]['x'], G_lines.nodes[u]['y']
+            x2, y2 = G_lines.nodes[v]['x'], G_lines.nodes[v]['y']
+            length = math.dist((x1, y1), (x2, y2))     # servirà poi per calcolare il tempo di percorrenza
 
             # ogni arco è distinto → MultiDiGraph salva chiave (key) diversa
             G_lines.add_edge(u, v, weight=1, length=length, ref=row['ref'])
@@ -102,9 +117,9 @@ def transit_data_city(city, n_lines=2, n_stops=8, network_type="drive"):
     return df_routes, df_stops, G_city, G_lines
 
 
-#########################
-# CREATE REBALANCING GRAPH
-#########################
+
+
+# === CREATE REBALANCING GRAPH ===
 def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
     # line_nodes: ref -> list of stop_id integers
     line_nodes = {row['ref']: row['geometry'] for _, row in df_routes.iterrows()}
@@ -128,13 +143,13 @@ def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
     G_reb = nx.MultiDiGraph()
     for n in special_nodes:
         stop_info = df_stops[df_stops['stop_id']==n].iloc[0]
-        G_reb.add_node(n, lon=stop_info['lon'], lat=stop_info['lat'])
+        G_reb.add_node(n, x=stop_info['x'], y=stop_info['y'], lon=stop_info['lon'], lat=stop_info['lat'])
 
     for u in special_nodes:
         for v in special_nodes:
             if u != v:
-                x1, y1 = G_reb.nodes[u]['lon'], G_reb.nodes[u]['lat']
-                x2, y2 = G_reb.nodes[v]['lon'], G_reb.nodes[v]['lat']
+                x1, y1 = G_reb.nodes[u]['x'], G_reb.nodes[u]['y']
+                x2, y2 = G_reb.nodes[v]['x'], G_reb.nodes[v]['y']
                 length = math.dist((x1, y1), (x2, y2))      # la lunghezza servirà poi anche per il calcolo del tempo di percorrenza
                 G_reb.add_edge(u, v, weight=1, length=length)
 
@@ -147,9 +162,10 @@ def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
     return G_reb
 
 
-#########################
-# PLOT FUNCTION
-#########################
+
+
+# === PLOT FUNCTION ===
+# Plot del grafo delle linee autobus e linee di rebalance sul grafo della città
 def plot_transit_graph(G_city, G_lines, G_reb, df_routes, df_stops, title="Transit Lines + Rebalancing"):
     fig, ax = ox.plot_graph(G_city, show=False, close=False, node_size=0, edge_color='lightgray', edge_linewidth=0.5)
 
@@ -177,15 +193,17 @@ def plot_transit_graph(G_city, G_lines, G_reb, df_routes, df_stops, title="Trans
     plt.show()
 
 
-#########################
-# MAIN
-#########################
+
+
+
+
+# === MAIN ===
 if __name__ == "__main__":
     city_name = "Turin, Italy"
     city_clean = city_name.split(",")[0].strip()
     print(f"Generating transit data for {city_name}...")
 
-    df_routes, df_stops, G_city, G_lines = transit_data_city(city=city_name, n_lines=5, n_stops=15)
+    df_routes, df_stops, G_city, G_lines = transit_data_city(city=city_name, n_lines=7, n_stops=20)
 
     G_reb = create_rebalancing_graph(
         G_lines,

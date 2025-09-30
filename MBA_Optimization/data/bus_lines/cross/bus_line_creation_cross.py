@@ -14,7 +14,6 @@ np.random.seed(123)
 
 # === GENERATE CROSS DATA ===
 # Si vuole generare 2 linee di autobus che si itnersecano, ciascuna con n_stops = 5
-
 def create_test_data_cross(n_stops=5):
     """
     Generate a minimal transit dataset with 2 lines forming a cross.
@@ -42,8 +41,8 @@ def create_test_data_cross(n_stops=5):
             "name": stop_name,
             "type": "bus_stop",
             "node": stop_name,
-            "lon": x,
-            "lat": y
+            "x": x,
+            "y": y
         })
         stop_id += 1
     df_routes_list.append({
@@ -70,8 +69,8 @@ def create_test_data_cross(n_stops=5):
                 "name": stop_name,
                 "type": "bus_stop",
                 "node": stop_name,
-                "lon": x,
-                "lat": y
+                "x": x,
+                "y": y
             })
             stop_id += 1
     df_routes_list.append({
@@ -101,7 +100,7 @@ def create_test_data_cross(n_stops=5):
 
 # === CREATE LINES GRAPH ===
 # Si vuole creare un grafo delle line degli autobus
-def create_lines_graph():
+def create_lines_graph(df_routes, df_stops):
     """
     Build a NetworkX MULTIDIGRAPH of stops:
     - Each stop is a node (integer)
@@ -109,23 +108,24 @@ def create_lines_graph():
     - Allows multiple edges (multi-lines between same nodes)
     - Saves the graph as a .gpickle file
     """
-    df_routes, df_stops = create_test_data_cross()
-
     G = nx.MultiDiGraph()   # Multi-Directed Graph
 
     # Add nodes using stop_id (integer)
     for _, row in df_stops.iterrows():
-        G.add_node(int(row['name']), lon=row['lon'], lat=row['lat'])
+        G.add_node(int(row['name']), x=row['x'], y=row['y'])
 
     # Add edges along each line
     for _, row in df_routes.iterrows():
         stop_ids_line = row['geometry']   # Geometry contiene tutti gli stop di una determinata linea di bus
         for u, v in zip(stop_ids_line[:-1], stop_ids_line[1:]):
-            length_choice = np.random.geometric(0.7)    # 1 with prob 0.7,   then 2,3,... with decreasing prob.
+            # distanza euclidea tra le coordinate dei due stop
+            x1, y1 = df_stops.loc[df_stops['name']==u, ['x','y']].values[0]
+            x2, y2 = df_stops.loc[df_stops['name']==v, ['x','y']].values[0]
+            length = math.dist((x1, y1), (x2, y2))
 
             # aggiungo due archi direzionali (andata/ritorno) con attributo ref=linea
-            G.add_edge(u, v, weight=1, length=length_choice, ref=row['ref'])
-            G.add_edge(v, u, weight=1, length=length_choice, ref=row['ref'])
+            G.add_edge(u, v, weight=1, length=length, ref=row['ref'])
+            G.add_edge(v, u, weight=1, length=length, ref=row['ref'])
 
     # Save graph
     graph_file = f"data/bus_lines/cross/cross_bus_lines_graph.gpickle"
@@ -134,6 +134,8 @@ def create_lines_graph():
     print(f"Graph saved in {graph_file}")
 
     return G, df_routes, df_stops
+
+
 
 
 # === CREATE REBALANCING GRAPH ===
@@ -165,15 +167,15 @@ def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
     G_reb = nx.MultiDiGraph()
     for n in special_nodes:
         stop_info = df_stops[df_stops['name']==n].iloc[0]
-        G_reb.add_node(n, lon=stop_info['lon'], lat=stop_info['lat'])    # Aggiungiamo il nodo se è "special"
+        G_reb.add_node(n, x=stop_info['x'], y=stop_info['y'])    # Aggiungiamo il nodo se è "special"
 
     for u in special_nodes:
         for v in special_nodes:
             if u != v:
-                x1, y1 = G_reb.nodes[u]['lon'], G_reb.nodes[u]['lat']
-                x2, y2 = G_reb.nodes[v]['lon'], G_reb.nodes[v]['lat']
+                x1, y1 = G_reb.nodes[u]['x'], G_reb.nodes[u]['y']
+                x2, y2 = G_reb.nodes[v]['x'], G_reb.nodes[v]['y']
                 length = math.dist((x1, y1), (x2, y2))
-                G_reb.add_edge(u, v, weight=1, length=length)   # Aggiungiamo i fari archi tra tutti questi nodi
+                G_reb.add_edge(u, v, weight=1, length=length)   # Aggiungiamo i vari archi tra tutti questi nodi
 
     if save_path:
         with open(save_path, "wb") as f:
@@ -196,21 +198,21 @@ def plot_transit_graphs(G_lines, G_reb, df_routes, df_stops, title="Transit + Re
     # Plot bus lines
     for _, row in df_routes.iterrows():
         stop_ids_line = row['geometry']
-        coords = [(df_stops[df_stops['name']==name]['lon'].values[0],
-                   df_stops[df_stops['name']==name]['lat'].values[0])
+        coords = [(df_stops[df_stops['name']==name]['x'].values[0],
+                   df_stops[df_stops['name']==name]['y'].values[0])
                   for name in stop_ids_line]
         xs, ys = zip(*coords)
         plt.plot(xs, ys, marker='o', label=row['name'], linewidth=2)
 
     # Plot all stops
-    xs = [row['lon'] for _, row in df_stops.iterrows()]
-    ys = [row['lat'] for _, row in df_stops.iterrows()]
+    xs = [row['x'] for _, row in df_stops.iterrows()]
+    ys = [row['y'] for _, row in df_stops.iterrows()]
     plt.scatter(xs, ys, color='red', zorder=5, s=50, label="Stops")
 
     # Plot rebalancing arcs
     for u, v, key in G_reb.edges(keys=True):
-        x1, y1 = G_reb.nodes[u]['lon'], G_reb.nodes[u]['lat']
-        x2, y2 = G_reb.nodes[v]['lon'], G_reb.nodes[v]['lat']
+        x1, y1 = G_reb.nodes[u]['x'], G_reb.nodes[u]['y']
+        x2, y2 = G_reb.nodes[v]['x'], G_reb.nodes[v]['y']
         plt.arrow(x1, y1, x2 - x1, y2 - y1,
                   color='green', alpha=0.5,
                   length_includes_head=True,
@@ -226,12 +228,11 @@ def plot_transit_graphs(G_lines, G_reb, df_routes, df_stops, title="Transit + Re
 
 
 
-
 # === MAIN ===
 if __name__ == "__main__":
     print("Generating test dataset...")
     df_routes, df_stops = create_test_data_cross(n_stops=3)
-    G_lines, df_routes, df_stops = create_lines_graph()
+    G_lines, df_routes, df_stops = create_lines_graph(df_routes, df_stops)
 
     # Create rebalancing graph
     G_reb = create_rebalancing_graph(
@@ -243,3 +244,4 @@ if __name__ == "__main__":
 
     # Plot graphs
     plot_transit_graphs(G_lines, G_reb, df_routes, df_stops, title="Transit + Rebalancing")
+    print("Finish")
