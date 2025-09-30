@@ -5,8 +5,11 @@ import pickle
 import random
 from collections import defaultdict
 import os
+import math
+import numpy as np
 
 random.seed(123)
+np.random.seed(123)
 
 #########################
 # CREATE GRID TEST DATA
@@ -110,6 +113,7 @@ def create_grid_graph(df_routes, df_stops, save_path="data/bus_lines/grid/grid_b
     Build a NetworkX graph for the grid:
     - Nodes are integers
     - Consecutive stops along lines are connected
+    - Each edge has a 'length' attribute (euclidean distance)
     """
     G = nx.Graph()
     for _, row in df_stops.iterrows():
@@ -118,7 +122,10 @@ def create_grid_graph(df_routes, df_stops, save_path="data/bus_lines/grid/grid_b
     for _, row in df_routes.iterrows():
         stop_ids_line = row['geometry']  # already list of ints
         for u, v in zip(stop_ids_line[:-1], stop_ids_line[1:]):
-            G.add_edge(u, v, weight=1)
+            x1, y1 = G.nodes[u]['lon'], G.nodes[u]['lat']
+            x2, y2 = G.nodes[v]['lon'], G.nodes[v]['lat']
+            length = math.dist((x1, y1), (x2, y2))  # distanza euclidea
+            G.add_edge(u, v, weight=1, length=length)
 
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     with open(save_path, "wb") as f:
@@ -133,6 +140,7 @@ def create_grid_graph(df_routes, df_stops, save_path="data/bus_lines/grid/grid_b
 def create_grid_rebalancing_graph(G, df_routes, df_stops, save_path="data/bus_lines/grid/grid_rebalancing_graph.gpickle"):
     """
     Create directed rebalancing graph for terminals/junctions
+    - Each edge has a 'length' attribute (euclidean distance)
     """
     line_nodes = {row['ref']: row['geometry'] for _, row in df_routes.iterrows()}
 
@@ -159,7 +167,10 @@ def create_grid_rebalancing_graph(G, df_routes, df_stops, save_path="data/bus_li
     for u in special_nodes:
         for v in special_nodes:
             if u != v:
-                G_reb.add_edge(u, v)
+                x1, y1 = G_reb.nodes[u]['lon'], G_reb.nodes[u]['lat']
+                x2, y2 = G_reb.nodes[v]['lon'], G_reb.nodes[v]['lat']
+                length = math.dist((x1, y1), (x2, y2))
+                G_reb.add_edge(u, v, weight=1, length=length)
 
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     with open(save_path, "wb") as f:
@@ -191,7 +202,7 @@ def plot_grid_transit(G_lines, G_reb, df_routes, df_stops, title="Grid Transit +
     for u, v in G_reb.edges():
         x1, y1 = G_reb.nodes[u]['lon'], G_reb.nodes[u]['lat']
         x2, y2 = G_reb.nodes[v]['lon'], G_reb.nodes[v]['lat']
-        plt.arrow(x1, y1, x2-x1, y2-y1, color='green', alpha=0.5,
+        plt.arrow(x1, y1, x2-x1, y2-y1, color='grey', alpha=0.5,
                   length_includes_head=True, head_width=0.1, head_length=0.1)
 
     plt.title(title)

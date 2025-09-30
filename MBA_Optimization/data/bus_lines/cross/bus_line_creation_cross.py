@@ -4,29 +4,34 @@ import networkx as nx
 import pickle
 import random
 from collections import defaultdict
+import math
+import numpy as np
 
 random.seed(123)
+np.random.seed(123)
 
-####################
-# GENERATE TEST DATA
-####################
+
+
+# === GENERATE CROSS DATA ===
+# Si vuole generare 2 linee di autobus che si itnersecano, ciascuna con n_stops = 5
+
 def create_test_data_cross(n_stops=5):
     """
     Generate a minimal transit dataset with 2 lines forming a cross.
     - Each line has `n_stops` stops
     - Lines intersect at a single stop (random index)
     - Saves CSV files for lines and stops
-    - 'geometry' column now contains a list of stop_ids (integers)
+    - 'geometry' column contains a list of stop_ids (integers)
     """
-    df_routes_list = []
+    df_routes_list = []  
     df_stops_list = []
     stop_id = 0
 
     # Choose random intersection index (between 1 and n_stops-2)
-    intersection_idx = random.randint(1, n_stops-2)
+    intersection_idx = random.randint(1, n_stops-2)    # punto di intersezione
 
     # === Line 1: horizontal ===
-    coords_line1 = []
+    coords_line1 = []     # si salvano i punti lungo la linea 1
     for i in range(n_stops):
         x = i
         y = n_stops // 2
@@ -45,7 +50,7 @@ def create_test_data_cross(n_stops=5):
         "route": "bus",
         "ref": "1",
         "name": "Line 1",
-        "geometry": coords_line1  # list of ints
+        "geometry": coords_line1  
     })
 
     # === Line 2: vertical ===
@@ -92,9 +97,10 @@ def create_test_data_cross(n_stops=5):
     return df_routes, df_stops
 
 
-#########################
-# CREATE LINES GRAPH
-#########################
+
+
+# === CREATE LINES GRAPH ===
+# Si vuole creare un grafo delle line degli autobus
 def create_lines_graph():
     """
     Build a NetworkX MULTIDIGRAPH of stops:
@@ -105,7 +111,7 @@ def create_lines_graph():
     """
     df_routes, df_stops = create_test_data_cross()
 
-    G = nx.MultiDiGraph()
+    G = nx.MultiDiGraph()   # Multi-Directed Graph
 
     # Add nodes using stop_id (integer)
     for _, row in df_stops.iterrows():
@@ -113,11 +119,13 @@ def create_lines_graph():
 
     # Add edges along each line
     for _, row in df_routes.iterrows():
-        stop_ids_line = row['geometry']
+        stop_ids_line = row['geometry']   # Geometry contiene tutti gli stop di una determinata linea di bus
         for u, v in zip(stop_ids_line[:-1], stop_ids_line[1:]):
+            length_choice = np.random.geometric(0.7)    # 1 with prob 0.7,   then 2,3,... with decreasing prob.
+
             # aggiungo due archi direzionali (andata/ritorno) con attributo ref=linea
-            G.add_edge(u, v, weight=1, ref=row['ref'])
-            G.add_edge(v, u, weight=1, ref=row['ref'])
+            G.add_edge(u, v, weight=1, length=length_choice, ref=row['ref'])
+            G.add_edge(v, u, weight=1, length=length_choice, ref=row['ref'])
 
     # Save graph
     graph_file = f"data/bus_lines/cross/cross_bus_lines_graph.gpickle"
@@ -128,44 +136,44 @@ def create_lines_graph():
     return G, df_routes, df_stops
 
 
-#########################
-# CREATE REBALANCING GRAPH
-#########################
+# === CREATE REBALANCING GRAPH ===
+# Creazione del grafo degli archi aggiuntivi che possono fungere da percorsi per i moduli vuoti quando devono essere ribilanciati
 def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
     """
     Create a directed MULTIDIGRAPH connecting terminals and junctions.
     - Terminals: first and last stop of each line
     - Junctions: stops shared by multiple lines
     """
-    # Map line to stop_ids (integers)
     line_nodes = {row['ref']: row['geometry'] for _, row in df_routes.iterrows()}
 
-    # Identify terminals
+    # Terminals (primo e ultimo nodo della linea)
     T_nodes = set()
     for nodes in line_nodes.values():
         T_nodes.add(nodes[0])
         T_nodes.add(nodes[-1])
 
-    # Identify junctions
+    # Junctions (dove si intersecano almeno 2 linee)
     node_count = defaultdict(int)
     for nodes in line_nodes.values():
         for n in nodes:
             node_count[n] += 1
     J_nodes = set(n for n, cnt in node_count.items() if cnt >= 2)
 
-    special_nodes = T_nodes.union(J_nodes)
+    special_nodes = T_nodes.union(J_nodes)    # Nodi dove può avvenire il ribilanciamento
 
     # Build directed MULTIDIGRAPH
     G_reb = nx.MultiDiGraph()
     for n in special_nodes:
         stop_info = df_stops[df_stops['name']==n].iloc[0]
-        G_reb.add_node(n, lon=stop_info['lon'], lat=stop_info['lat'])
+        G_reb.add_node(n, lon=stop_info['lon'], lat=stop_info['lat'])    # Aggiungiamo il nodo se è "special"
 
-    # Add arcs between all special nodes
     for u in special_nodes:
         for v in special_nodes:
             if u != v:
-                G_reb.add_edge(u, v, weight=1)
+                x1, y1 = G_reb.nodes[u]['lon'], G_reb.nodes[u]['lat']
+                x2, y2 = G_reb.nodes[v]['lon'], G_reb.nodes[v]['lat']
+                length = math.dist((x1, y1), (x2, y2))
+                G_reb.add_edge(u, v, weight=1, length=length)   # Aggiungiamo i fari archi tra tutti questi nodi
 
     if save_path:
         with open(save_path, "wb") as f:
@@ -175,9 +183,10 @@ def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
     return G_reb
 
 
-#########################
-# PLOT GRAPHS
-#########################
+
+
+# === PLOT GRAPHS ===
+# Visualizzazione dei grafi delle linee bus e linee di rebalance
 def plot_transit_graphs(G_lines, G_reb, df_routes, df_stops, title="Transit + Rebalancing"):
     """
     Plot the bus line graph and rebalancing graph
@@ -215,9 +224,10 @@ def plot_transit_graphs(G_lines, G_reb, df_routes, df_stops, title="Transit + Re
     plt.show()
 
 
-#########################
-# MAIN
-#########################
+
+
+
+# === MAIN ===
 if __name__ == "__main__":
     print("Generating test dataset...")
     df_routes, df_stops = create_test_data_cross(n_stops=3)

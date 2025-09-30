@@ -25,7 +25,7 @@ MBA_Optimization/
 |   |   ├──grid/
 |   |   |   └── bus_line_creation_grid.py       # (2) creazione corse con grid
 |   |   └──city/
-|   |      └── bus_line_creation_city.py      # (3) creazione corse su grafo di una città
+|   |      └── bus_line_creation_city.py        # (3) creazione corse su grafo di una città
 │   └──demands/
 |       └── demand_creation.py  # creazione della domanda (prendendo le bus_lines e gli stop in input)
 |                               # le linee degli autobus sono un grafo e si cerca lo shortest path
@@ -35,7 +35,7 @@ MBA_Optimization/
 │  
 ├── utils/  
 │   │── f_for_data.py      # caricamento dati  (lines,  grid,  city)
-│   └── f_for_results.py   # salvataggio e plot delle soluzionis                       
+│   └── f_for_results.py   # salvataggio e plot delle soluzioni                      
 |
 ├── results/                # output dei risultati dell’ottimizzazione  
 │  
