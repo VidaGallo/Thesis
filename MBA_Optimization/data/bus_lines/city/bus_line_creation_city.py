@@ -118,6 +118,33 @@ def transit_data_city(city, n_lines=2, n_stops=8, network_type="drive"):
 
 
 
+# === CREATE G_bar simple GRAPH ===
+def build_G_bar(G_lines):
+    """
+    Crea il grafo semplice G_bar da un MultiDiGraph G_lines.
+    - I nodi restano uguali.
+    - Se due nodi sono collegati da almeno una linea, aggiungo un arco unico.
+    - Come peso uso la lunghezza minima tra le linee che collegano quei due nodi.
+    """
+    G_bar = nx.Graph()
+    # Copio i nodi con attributi
+    for n, data in G_lines.nodes(data=True):
+        G_bar.add_node(n, **data)
+
+    # Per ogni coppia di nodi collegati da almeno una linea
+    for u, v, data in G_lines.edges(data=True):
+        length = data.get("length", 1.0)
+        if G_bar.has_edge(u, v):
+            # Tengo la lunghezza minima
+            if length < G_bar[u][v]["length"]:
+                G_bar[u][v]["length"] = length
+        else:
+            G_bar.add_edge(u, v, length=length)
+
+    return G_bar
+
+
+
 
 # === CREATE REBALANCING GRAPH ===
 def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
@@ -204,6 +231,12 @@ if __name__ == "__main__":
     print(f"Generating transit data for {city_name}...")
 
     df_routes, df_stops, G_city, G_lines = transit_data_city(city=city_name, n_lines=7, n_stops=20)
+
+    # Dopo aver creato G_lines
+    G_bar = build_G_bar(G_lines)
+    with open(f"data/bus_lines/city/city_{city_clean}_Gbar_graph.gpickle", "wb") as f:
+        pickle.dump(G_bar, f)
+
 
     G_reb = create_rebalancing_graph(
         G_lines,

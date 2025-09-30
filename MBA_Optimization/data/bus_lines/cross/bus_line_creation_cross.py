@@ -137,6 +137,41 @@ def create_lines_graph(df_routes, df_stops):
 
 
 
+# === CREATE SIMPLE GRAPH G_bar ===
+# Serve per definire i cammini dei passeggeri (no multiarci, solo un arco se almeno una linea collega due nodi)
+def create_G_bar(G_lines, save_path=None):
+    """
+    Crea il grafo semplice G_bar a partire dal MultiDiGraph G_lines.
+    - I nodi restano gli stessi
+    - Se due nodi sono collegati da almeno una linea, aggiungo un arco unico
+    - Se più linee collegano gli stessi nodi, tengo la lunghezza minima
+    """
+    G_bar = nx.Graph()
+
+    # Copio i nodi con gli stessi attributi
+    for n, data in G_lines.nodes(data=True):
+        G_bar.add_node(n, **data)
+
+    # Aggiungo un arco unico per ogni coppia di nodi collegati
+    for u, v, data in G_lines.edges(data=True):
+        length = data.get("length", 1.0)
+        if G_bar.has_edge(u, v):
+            if length < G_bar[u][v]["length"]:
+                G_bar[u][v]["length"] = length
+        else:
+            G_bar.add_edge(u, v, length=length)
+
+    # Salvo il grafo se richiesto
+    if save_path:
+        with open(save_path, "wb") as f:
+            pickle.dump(G_bar, f)
+        print(f"G_bar saved as {save_path}")
+
+    return G_bar
+
+
+
+
 
 # === CREATE REBALANCING GRAPH ===
 # Creazione del grafo degli archi aggiuntivi che possono fungere da percorsi per i moduli vuoti quando devono essere ribilanciati
@@ -233,6 +268,12 @@ if __name__ == "__main__":
     print("Generating test dataset...")
     df_routes, df_stops = create_test_data_cross(n_stops=3)
     G_lines, df_routes, df_stops = create_lines_graph(df_routes, df_stops)
+
+    # Crea grafo semplice G_bar per i cammini passeggeri
+    G_bar = create_G_bar(
+        G_lines,
+        save_path="data/bus_lines/cross/cross_Gbar_graph.gpickle"
+    )
 
     # Create rebalancing graph
     G_reb = create_rebalancing_graph(

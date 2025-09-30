@@ -1,91 +1,82 @@
 import networkx as nx
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
-import numpy as np
+from matplotlib.patches import Patch
 import os
 import json
 
-def plot_bus_network(N, w_sol, x_sol=None, show_passengers=False, show_length=False, G_lines=None):
-    """
-    Visualizza la rete dei bus con numero di bus assegnati (w_sol) e opzionalmente flusso passeggeri (x_sol).
-    Gestisce più linee distinte.
 
-    Parameters:
-    - N : dict, line_ref -> lista segmenti (tuple di nodi)
-    - w_sol : dict, (l,h) -> numero di bus assegnati
-    - x_sol : dict, (k,i,j,l,h) -> flusso passeggeri (opzionale)
-    - show_passengers : bool, se True mostra anche flusso passeggeri sugli archi
-    - show_length : bool, se True aggiunge la lunghezza dell’arco nelle etichette
-    - G_lines : MultiDiGraph opzionale, se fornito permette di leggere attributi come length/travel_time
+
+def plot_bus_network(G_lines, w_sol, x_sol=None, show_passengers=False, show_length=False):
+    """
+    Disegna la rete direttamente dal grafo G_lines.
+    - Usa coordinate x,y dei nodi
+    - Due archi distinti per direzioni opposte
+    - Colori random (uno per ogni linea)
+    - Etichette multi-linea sopra/sotto correttamente distanziate
     """
 
-    G_vis = nx.MultiDiGraph()
+    # === Genera colori dinamici per linee ===
+    line_refs = sorted(set(str(data.get("ref")) for _, _, data in G_lines.edges(data=True) if "ref" in data))
+    cmap = cm.get_cmap("tab20", len(line_refs))  # palette fino a 20 linee
+    line_colors = {l: cmap(i) for i, l in enumerate(line_refs)}
 
-    # Colori per linee
-    line_list = list(N.keys())
-    color_map = cm.get_cmap('tab10', len(line_list))
-    line_colors = {l: color_map(i) for i, l in enumerate(line_list)}
-
-    edge_labels = {}
-    edge_styles = []
-
-    for l, seg_list in N.items():
-        color = line_colors[l]
-        for h, seg in enumerate(seg_list):
-            n_bus = w_sol.get((l, h), 0)
-            n_pass = 0
-            if show_passengers and x_sol is not None:
-                for (k, i, j, ll, hh), val in x_sol.items():
-                    if ll == l and hh == h and val > 0:
-                        if (i, j) in [(seg[x], seg[x+1]) for x in range(len(seg)-1)]:
-                            n_pass += val
-
-            for i in range(len(seg)-1):
-                u, v = seg[i], seg[i+1]
-                attrs = {"line": l, "segment": h, "n_bus": n_bus}
-
-                # se disponibile aggiungo la length dal grafo delle linee
-                if G_lines and G_lines.has_edge(u, v):
-                    first_key = list(G_lines[u][v].keys())[0]
-                    attrs["length"] = G_lines[u][v][first_key].get("length", None)
-
-                # aggiungi entrambi i versi
-                G_vis.add_edge(u, v, **attrs)
-                G_vis.add_edge(v, u, **attrs)
-
-                # costruisci etichetta (solo per u→v per non duplicare)
-                label = f"L{l}: {n_bus} mod"
-                if n_pass > 0:
-                    label += f"\n{int(n_pass)} pax"
-                if show_length and "length" in attrs and attrs["length"] is not None:
-                    label += f"\nlen={attrs['length']:.1f}"
-                edge_labels[(u, v, l, h)] = label
-                edge_styles.append((color, 1 + n_bus/3))
-
-    # layout nodi
-    pos = nx.spring_layout(G_vis, seed=42)
+    # Posizioni dai nodi (coordinate cartesiane vere)
+    pos = {n: (G_lines.nodes[n]["x"], G_lines.nodes[n]["y"]) for n in G_lines.nodes()}
 
     # Disegna nodi
-    nx.draw(G_vis, pos, with_labels=True, node_size=500, node_color='lightblue')
+    nx.draw_networkx_nodes(G_lines, pos, node_size=600, node_color="lightblue")
+    nx.draw_networkx_labels(G_lines, pos, font_size=10, font_color="black")
 
-    # Disegna archi con colori/spessori salvati
-    for (u, v, l, h), (col, width) in zip(edge_labels.keys(), edge_styles):
+    # Disegna archi e prepara etichette
+    for u, v, k, data in G_lines.edges(keys=True, data=True):
+        line = str(data.get("ref", "?"))
+        color = line_colors.get(line, "gray")
+
+        # Rad positivo per una direzione, negativo per l'altra
+        rad = 0.2 if (u < v) else -0.2
+
+        # Disegna arco direzionale singolo
         nx.draw_networkx_edges(
-            G_vis, pos, edgelist=[(u, v)],
-            width=width, edge_color=[col],
-            connectionstyle="arc3,rad=0.1"  # incurva archi per differenziare le direzioni
+            G_lines, pos, edgelist=[(u, v)],
+            edge_color=color,
+            width=1.5,
+            arrows=True,
+            arrowsize=15,
+            connectionstyle=f"arc3,rad={rad}"
         )
 
-    # Etichette archi
-    nx.draw_networkx_edge_labels(
-        G_vis, pos,
-        edge_labels={(u, v): lbl for (u, v, l, h), lbl in edge_labels.items()},
-        font_color='red', font_size=8
-    )
+        # === Etichetta multi-linea ===
+        l = data.get("ref")
+        h = data.get("segment")
+        n_bus = w_sol.get((l, h), 0) if l is not None and h is not None else 0
 
-    plt.title("Rete bus: numero di bus per segmento"
-              + (" + flusso passeggeri" if show_passengers else "")
-              + (" + length" if show_length else ""))
+        label = f"Linea {l}\n{n_bus} mod"
+        if show_passengers and "pax" in data:
+            label += f"\n{int(data['pax'])} pax"
+        if show_length and "length" in data:
+            label += f"\nlen={data['length']:.1f}"
+
+        # Posizione etichetta: spostata sopra o sotto
+        x1, y1 = pos[u]
+        x2, y2 = pos[v]
+        xm, ym = (x1 + x2) / 2, (y1 + y2) / 2
+        offset = 0.25 if rad > 0 else -0.25
+
+        plt.text(xm, ym + offset, label,
+                 fontsize=8, color="black",
+                 ha="center", va="center",
+                 bbox=dict(facecolor="white", alpha=0.6, edgecolor="none"))
+
+    # Legenda colori linee
+    legend_elements = [Patch(facecolor=color, label=f"Linea {l}") for l, color in line_colors.items()]
+    plt.legend(handles=legend_elements, loc="upper left", fontsize=8)
+
+    plt.title("Rete bus", color="black")
+    plt.xlabel("X")
+    plt.ylabel("Y")
+    plt.axis("equal")
+    plt.grid(True, linestyle="--", alpha=0.5)
     plt.show()
 
 

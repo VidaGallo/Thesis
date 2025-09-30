@@ -137,6 +137,40 @@ def create_grid_graph(df_routes, df_stops, save_path="data/bus_lines/grid/grid_b
     return G
 
 
+# === CREATE SIMPLE GRAPH G_bar ===
+def create_G_bar(G_lines, save_path="data/bus_lines/grid/grid_Gbar_graph.gpickle"):
+    """
+    Crea il grafo semplice G_bar a partire dal MultiDiGraph G_lines.
+    - I nodi restano identici
+    - Se due nodi sono collegati da almeno una linea, aggiungo un arco unico
+    - Se più linee collegano la stessa coppia, tengo la lunghezza minima
+    """
+    G_bar = nx.Graph()
+
+    # Copio i nodi con attributi
+    for n, data in G_lines.nodes(data=True):
+        G_bar.add_node(n, **data)
+
+    # Aggiungo un solo arco per ogni coppia di nodi
+    for u, v, data in G_lines.edges(data=True):
+        length = data.get("length", 1.0)
+        if G_bar.has_edge(u, v):
+            if length < G_bar[u][v]["length"]:
+                G_bar[u][v]["length"] = length
+        else:
+            G_bar.add_edge(u, v, length=length)
+
+    # Salva se richiesto
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        with open(save_path, "wb") as f:
+            pickle.dump(G_bar, f)
+        print(f"G_bar saved as {save_path}")
+
+    return G_bar
+
+
+
 # === CREATE REBALANCING GRAPH ===
 def create_grid_rebalancing_graph(G, df_routes, df_stops, save_path="data/bus_lines/grid/grid_rebalancing_graph.gpickle"):
     """
@@ -223,6 +257,7 @@ if __name__ == "__main__":
     df_routes, df_stops = create_grid_test_data(n_lines=4, n_stops=6, grid_size=8)
 
     G_lines = create_grid_graph(df_routes, df_stops)
+    G_bar = create_G_bar(G_lines, save_path="data/bus_lines/grid/grid_Gbar_graph.gpickle")
     G_reb = create_grid_rebalancing_graph(G_lines, df_routes, df_stops)
 
     plot_grid_transit(G_lines, G_reb, df_routes, df_stops, title="Grid Transit + Rebalancing")
