@@ -46,11 +46,17 @@ def load_sets(lines_csv, stops_csv, G_lines=None):
     # === Ordinary stops ===
     S = V - J - T
 
-    # === Line arcs ===
+    # === Line arcs (aggiornati per MultiDiGraph) ===
     A = set()
     for line_ref, nodes in line_nodes.items():
         for i in range(len(nodes)-1):
-            A.add((nodes[i], nodes[i+1], line_ref))
+            u, v = nodes[i], nodes[i+1]
+            if G_lines and G_lines.has_edge(u, v):
+                for key in G_lines[u][v]:
+                    A.add((u, v, line_ref, key))
+            else:
+                # fallback se G_lines non passato
+                A.add((u, v, line_ref, 0))
 
     # === Rebalancing arcs ===
     R_nodes = list(T.union(J))
@@ -74,36 +80,16 @@ def load_sets(lines_csv, stops_csv, G_lines=None):
             seg_list.append(tuple(current_seg))
         N[line_ref] = seg_list
 
-    # === Optional: map to G_lines if provided ===
-    if G_lines is not None:
-        # If nodes in V are not already G_lines nodes, map them
-        V_new, T_new, J_new, A_new, R_new = set(), set(), set(), set(), set()
-        N_new = {}
-        for v in V:
-            V_new.add(v if v in G_lines.nodes else v)
-        for t in T:
-            T_new.add(t if t in G_lines.nodes else t)
-        for j in J:
-            J_new.add(j if j in G_lines.nodes else j)
-        for u, v, l in A:
-            A_new.add((u if u in G_lines.nodes else u, v if v in G_lines.nodes else v, l))
-        for u, v in R:
-            R_new.add((u if u in G_lines.nodes else u, v if v in G_lines.nodes else v))
-        for line_ref, seg_list in N.items():
-            N_new[line_ref] = [tuple(n for n in seg) for seg in seg_list]
-        V, T, J, A, R, N = V_new, T_new, J_new, A_new, R_new, N_new
-
     return {
         'L': L,   # insieme delle linee della rete (line IDs)
         'V': V,   # insieme di tutti i nodi della rete (fermate)
         'S': S,   # insieme delle fermate ordinarie (non giunzioni né terminali)
         'J': J,   # insieme delle giunzioni (nodi presenti in ≥2 linee)
         'T': T,   # insieme dei terminali (inizio/fine di ogni linea)
-        'A': A,   # insieme degli archi della rete per ogni linea (i,j,line_ref)
+        'A': A,   # insieme degli archi della rete per ogni linea (i,j,line_ref,key)
         'R': R,   # insieme degli archi di ribilanciamento tra terminali e giunzioni
         'N': N    # dizionario: line_ref -> lista dei segmenti (tuple di nodi) tra giunzioni/terminali
     }
-
 
 
 def load_requests(requests_csv, data):
@@ -152,7 +138,6 @@ def load_requests(requests_csv, data):
     return K, p, Pk
 
 
-
 def assign_travel_times(G, speed_kmh=30):
     """
     Assign travel time (minutes) to edges in a graph.
@@ -160,7 +145,9 @@ def assign_travel_times(G, speed_kmh=30):
     """
     speed_m_per_min = speed_kmh * 1000 / 60  # m/min
 
-    for u, v, data in G.edges(data=True):
+    print(G.edges(keys=True, data=True))
+    for u, v, key, data in G.edges(keys=True, data=True):
+        print("ok")
         if 'length' in data:
             travel_time = data['length'] / speed_m_per_min
         elif 'lon' in G.nodes[u] and 'lon' in G.nodes[v]:
@@ -174,6 +161,7 @@ def assign_travel_times(G, speed_kmh=30):
 
     return G
 
+
 def compute_segment_travel_times(N, G_lines):
     """
     Restituisce dizionario t[(l,h)] = travel time segmento h della linea l.
@@ -185,11 +173,17 @@ def compute_segment_travel_times(N, G_lines):
             for i in range(len(seg)-1):
                 u, v = seg[i], seg[i+1]
                 if G_lines.has_edge(u,v):
-                    seg_time += G_lines[u][v].get('travel_time', 1)  # default 1 se non c'è
+                    # somma il tempo del primo arco disponibile
+                    first_key = list(G_lines[u][v].keys())[0]
+                    seg_time += G_lines[u][v][first_key].get('travel_time', 1)
                 else:
                     seg_time += 1
             t[l,h] = seg_time
     return t
+
+
+
+
 
 
 
@@ -211,6 +205,8 @@ if __name__ == "__main__":
         G_lines = pickle.load(f)
     with open("data/bus_lines/cross/cross_rebalancing_graph.gpickle", "rb") as f:
         G_reb = pickle.load(f)
+    print(type(G_lines))
+    print(type(G_reb))
     G_lines = assign_travel_times(G_lines, speed_kmh=35)
     G_reb = assign_travel_times(G_reb, speed_kmh=40)
     with open("data/bus_lines/cross/cross_bus_lines_graph.gpickle", "wb") as f:

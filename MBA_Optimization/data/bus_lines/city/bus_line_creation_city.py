@@ -77,16 +77,16 @@ def transit_data_city(city, n_lines=2, n_stops=8, network_type="drive"):
     df_routes = pd.DataFrame(df_routes_list)
     df_stops = pd.DataFrame(df_stops_list)
 
-    # Build undirected line graph
-    G_lines = nx.Graph()
+    # Build directed MULTIGRAPH for lines
+    G_lines = nx.MultiDiGraph()
     for _, row in df_stops.iterrows():
         G_lines.add_node(row['stop_id'], lon=row['lon'], lat=row['lat'])
     for _, row in df_routes.iterrows():
         stop_ids_line = row['geometry']
         for u, v in zip(stop_ids_line[:-1], stop_ids_line[1:]):
-            if not G_lines.has_edge(u, v):
-                G_lines.add_edge(u, v, weight=1, lines=set())
-            G_lines[u][v]['lines'].add(row['ref'])
+            # ogni arco è distinto → MultiDiGraph salva chiave (key) diversa
+            G_lines.add_edge(u, v, weight=1, ref=row['ref'])
+            G_lines.add_edge(v, u, weight=1, ref=row['ref'])
 
     # Save CSVs
     city_clean = city.split(",")[0].replace(" ", "_")
@@ -118,7 +118,8 @@ def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
 
     special_nodes = T_nodes.union(J_nodes)
 
-    G_reb = nx.DiGraph()
+    # Build directed MULTIGRAPH for rebalancing
+    G_reb = nx.MultiDiGraph()
     for n in special_nodes:
         stop_info = df_stops[df_stops['stop_id']==n].iloc[0]
         G_reb.add_node(n, lon=stop_info['lon'], lat=stop_info['lat'])
@@ -126,7 +127,7 @@ def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
     for u in special_nodes:
         for v in special_nodes:
             if u != v:
-                G_reb.add_edge(u, v)
+                G_reb.add_edge(u, v, weight=1)
 
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -156,7 +157,7 @@ def plot_transit_graph(G_city, G_lines, G_reb, df_routes, df_stops, title="Trans
     ax.scatter(df_stops['lon'], df_stops['lat'], color='red', s=20, zorder=5, label='Stops')
 
     # Rebalancing arcs
-    for u, v in G_reb.edges():
+    for u, v, key in G_reb.edges(keys=True):
         x1, y1 = G_reb.nodes[u]['lon'], G_reb.nodes[u]['lat']
         x2, y2 = G_reb.nodes[v]['lon'], G_reb.nodes[v]['lat']
         ax.arrow(x1, y1, x2-x1, y2-y1, color='green', alpha=0.5, length_includes_head=True,

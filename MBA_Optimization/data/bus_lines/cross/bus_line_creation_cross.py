@@ -45,7 +45,7 @@ def create_test_data_cross(n_stops=5):
         "route": "bus",
         "ref": "1",
         "name": "Line 1",
-        "geometry": coords_line1  # now a list of ints
+        "geometry": coords_line1  # list of ints
     })
 
     # === Line 2: vertical ===
@@ -73,7 +73,7 @@ def create_test_data_cross(n_stops=5):
         "route": "bus",
         "ref": "2",
         "name": "Line 2",
-        "geometry": coords_line2  # now a list of ints
+        "geometry": coords_line2
     })
 
     # Convert to DataFrames
@@ -97,14 +97,15 @@ def create_test_data_cross(n_stops=5):
 #########################
 def create_lines_graph():
     """
-    Build a NetworkX graph of stops:
+    Build a NetworkX MULTIDIGRAPH of stops:
     - Each stop is a node (integer)
-    - Consecutive stops along lines are connected by edges with weight=1
+    - Consecutive stops along lines are connected by directed edges
+    - Allows multiple edges (multi-lines between same nodes)
     - Saves the graph as a .gpickle file
     """
     df_routes, df_stops = create_test_data_cross()
 
-    G = nx.Graph()
+    G = nx.MultiDiGraph()
 
     # Add nodes using stop_id (integer)
     for _, row in df_stops.iterrows():
@@ -114,7 +115,9 @@ def create_lines_graph():
     for _, row in df_routes.iterrows():
         stop_ids_line = row['geometry']
         for u, v in zip(stop_ids_line[:-1], stop_ids_line[1:]):
-            G.add_edge(u, v, weight=1)
+            # aggiungo due archi direzionali (andata/ritorno) con attributo ref=linea
+            G.add_edge(u, v, weight=1, ref=row['ref'])
+            G.add_edge(v, u, weight=1, ref=row['ref'])
 
     # Save graph
     graph_file = f"data/bus_lines/cross/cross_bus_lines_graph.gpickle"
@@ -130,14 +133,12 @@ def create_lines_graph():
 #########################
 def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
     """
-    Create a directed rebalancing graph connecting terminals and junctions.
+    Create a directed MULTIDIGRAPH connecting terminals and junctions.
     - Terminals: first and last stop of each line
     - Junctions: stops shared by multiple lines
     """
     # Map line to stop_ids (integers)
-    line_nodes = {}
-    for _, row in df_routes.iterrows():
-        line_nodes[row['ref']] = row['geometry']
+    line_nodes = {row['ref']: row['geometry'] for _, row in df_routes.iterrows()}
 
     # Identify terminals
     T_nodes = set()
@@ -154,8 +155,8 @@ def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
 
     special_nodes = T_nodes.union(J_nodes)
 
-    # Build directed graph
-    G_reb = nx.DiGraph()
+    # Build directed MULTIDIGRAPH
+    G_reb = nx.MultiDiGraph()
     for n in special_nodes:
         stop_info = df_stops[df_stops['name']==n].iloc[0]
         G_reb.add_node(n, lon=stop_info['lon'], lat=stop_info['lat'])
@@ -164,7 +165,7 @@ def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
     for u in special_nodes:
         for v in special_nodes:
             if u != v:
-                G_reb.add_edge(u, v)
+                G_reb.add_edge(u, v, weight=1)
 
     if save_path:
         with open(save_path, "wb") as f:
@@ -198,7 +199,7 @@ def plot_transit_graphs(G_lines, G_reb, df_routes, df_stops, title="Transit + Re
     plt.scatter(xs, ys, color='red', zorder=5, s=50, label="Stops")
 
     # Plot rebalancing arcs
-    for u, v in G_reb.edges():
+    for u, v, key in G_reb.edges(keys=True):
         x1, y1 = G_reb.nodes[u]['lon'], G_reb.nodes[u]['lat']
         x2, y2 = G_reb.nodes[v]['lon'], G_reb.nodes[v]['lat']
         plt.arrow(x1, y1, x2 - x1, y2 - y1,

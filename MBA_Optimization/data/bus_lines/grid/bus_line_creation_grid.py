@@ -105,7 +105,7 @@ def create_grid_test_data(n_lines=4, n_stops=5, grid_size=5):
 #########################
 # CREATE GRID GRAPH
 #########################
-def create_grid_graph(df_routes, df_stops):
+def create_grid_graph(df_routes, df_stops, save_path="data/bus_lines/grid/grid_bus_lines_graph.gpickle"):
     """
     Build a NetworkX graph for the grid:
     - Nodes are integers
@@ -120,28 +120,29 @@ def create_grid_graph(df_routes, df_stops):
         for u, v in zip(stop_ids_line[:-1], stop_ids_line[1:]):
             G.add_edge(u, v, weight=1)
 
-    os.makedirs("data/bus_lines/grid", exist_ok=True)
-    graph_file = "data/bus_lines/grid/grid_bus_lines_graph.gpickle"
-    with open(graph_file, "wb") as f:
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    with open(save_path, "wb") as f:
         pickle.dump(G, f)
-    print(f"Grid graph saved as {graph_file}")
+    print(f"Grid graph saved as {save_path}")
     return G
 
 
 #########################
 # CREATE REBALANCING GRAPH
 #########################
-def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
+def create_grid_rebalancing_graph(G, df_routes, df_stops, save_path="data/bus_lines/grid/grid_rebalancing_graph.gpickle"):
     """
     Create directed rebalancing graph for terminals/junctions
     """
     line_nodes = {row['ref']: row['geometry'] for _, row in df_routes.iterrows()}
 
+    # Terminals = first and last stop of each line
     T_nodes = set()
     for nodes in line_nodes.values():
         T_nodes.add(nodes[0])
         T_nodes.add(nodes[-1])
 
+    # Junctions = shared stops
     node_count = defaultdict(int)
     for nodes in line_nodes.values():
         for n in nodes:
@@ -160,11 +161,10 @@ def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
             if u != v:
                 G_reb.add_edge(u, v)
 
-    if save_path:
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        with open(save_path, "wb") as f:
-            pickle.dump(G_reb, f)
-        print(f"Rebalancing graph saved as {save_path}")
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    with open(save_path, "wb") as f:
+        pickle.dump(G_reb, f)
+    print(f"Rebalancing graph saved as {save_path}")
 
     return G_reb
 
@@ -172,8 +172,9 @@ def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
 #########################
 # PLOT GRID TRANSIT
 #########################
-def plot_grid_transit(G_lines, G_reb, df_routes, df_stops, title="Transit + Rebalancing"):
+def plot_grid_transit(G_lines, G_reb, df_routes, df_stops, title="Grid Transit + Rebalancing"):
     plt.figure(figsize=(8,8))
+    # Plot bus lines
     for _, row in df_routes.iterrows():
         stop_ids_line = row['geometry']
         coords = [(df_stops[df_stops['node']==n]['lon'].values[0],
@@ -181,10 +182,12 @@ def plot_grid_transit(G_lines, G_reb, df_routes, df_stops, title="Transit + Reba
         xs, ys = zip(*coords)
         plt.plot(xs, ys, marker='o', label=row['name'], linewidth=2)
 
+    # Plot all stops
     xs = [row['lon'] for _, row in df_stops.iterrows()]
     ys = [row['lat'] for _, row in df_stops.iterrows()]
     plt.scatter(xs, ys, color='red', s=50, zorder=5, label="Stops")
 
+    # Plot rebalancing arcs
     for u, v in G_reb.edges():
         x1, y1 = G_reb.nodes[u]['lon'], G_reb.nodes[u]['lat']
         x2, y2 = G_reb.nodes[v]['lon'], G_reb.nodes[v]['lat']
@@ -207,11 +210,6 @@ if __name__ == "__main__":
     df_routes, df_stops = create_grid_test_data(n_lines=4, n_stops=6, grid_size=8)
 
     G_lines = create_grid_graph(df_routes, df_stops)
-    G_reb = create_rebalancing_graph(
-        G_lines,
-        df_routes,
-        df_stops,
-        save_path="data/bus_lines/grid/grid_rebalancing_graph.gpickle"
-    )
+    G_reb = create_grid_rebalancing_graph(G_lines, df_routes, df_stops)
 
     plot_grid_transit(G_lines, G_reb, df_routes, df_stops, title="Grid Transit + Rebalancing")

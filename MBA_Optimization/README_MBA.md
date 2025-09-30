@@ -1,6 +1,21 @@
+### 3 settings:
+- (1) Simple cross
+- (2) Bus lines on a grid
+- (3) Bus lines on a city graph (not real lines, but generated randomply to test a more realistic setting)
+
+
+
+
+### Optimization:
+- (A) BASE MODEL: no rebalancing, the passanger can't change the line => OFTEN INFEASABLE SOLUTION
+- (A.bis) BASE MODEL PENAL: as A, but with PENALTIES for requests that can't be satisfied
+- (B) MODEL with CHANGES: as A, but the model can change the line
+- (C) FULL MODEL: with both rebalancing an line changes
+
+
+
+
 ### Code structure:
-
-
 MBA_Optimization/  
 │  
 ├── data/
@@ -26,5 +41,17 @@ MBA_Optimization/
 │  
 │── main_lines.py                # script principale per lines
 │── main_grid.py                 # script principale per grid
-│── main_graph.py                 # script principale per city      
+└── main_graph.py                 # script principale per city      
+
+
+
+
+
+
+
+### Additional Comments:
+- 2 graphs: 1 for bus lines, 1 for rebalancing archs
+- Graphs are saved as MultiDiGraphs() (multigraphs, directional) Each arch has a unique key = "bus line" 
+- The input info is saved usually as csv, the outputs instead as json
+
 
