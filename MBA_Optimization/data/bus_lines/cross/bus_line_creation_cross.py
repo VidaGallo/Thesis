@@ -6,6 +6,7 @@ import random
 from collections import defaultdict
 import math
 import numpy as np
+import os
 
 random.seed(123)
 np.random.seed(123)
@@ -13,14 +14,14 @@ np.random.seed(123)
 
 
 # === GENERATE CROSS DATA ===
-# Si vuole generare 2 linee di autobus che si itnersecano, ciascuna con n_stops = 5
+# Si vuole generare 2 linee di autobus che si intersecano
 def create_test_data_cross(n_stops=5):
     """
     Generate a minimal transit dataset with 2 lines forming a cross.
     - Each line has `n_stops` stops
     - Lines intersect at a single stop (random index)
     - Saves CSV files for lines and stops
-    - 'geometry' column contains a list of stop_ids (integers)
+    - 'geometry' column contains a list of stop_ids (integers) representing the bus line
     """
     df_routes_list = []  
     df_stops_list = []
@@ -45,11 +46,12 @@ def create_test_data_cross(n_stops=5):
             "y": y
         })
         stop_id += 1
+    geometry_closed_1 = coords_line1 + coords_line1[-2::-1]    # Sia andata che ritorno
     df_routes_list.append({
         "route": "bus",
         "ref": "1",
         "name": "Line 1",
-        "geometry": coords_line1  
+        "geometry": geometry_closed_1  
     })
 
     # === Line 2: vertical ===
@@ -73,11 +75,12 @@ def create_test_data_cross(n_stops=5):
                 "y": y
             })
             stop_id += 1
+    geometry_closed_2 = coords_line2 + coords_line2[-2::-1]    # andata e ritorno
     df_routes_list.append({
         "route": "bus",
         "ref": "2",
         "name": "Line 2",
-        "geometry": coords_line2
+        "geometry": geometry_closed_2
     })
 
     # Convert to DataFrames
@@ -183,19 +186,27 @@ def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
     """
     line_nodes = {row['ref']: row['geometry'] for _, row in df_routes.iterrows()}
 
-    # Terminals (primo e ultimo nodo della linea)
+    ### Terminals
+    # Nodi che appaiono una sola volta nel percorso della linea (es.1e3 in 1-2-3-2-1)
     T_nodes = set()
     for nodes in line_nodes.values():
-        T_nodes.add(nodes[0])
-        T_nodes.add(nodes[-1])
+        counts = defaultdict(int)
+        for n in nodes:
+            counts[n] += 1
+        terminals_line = [n for n, c in counts.items() if c == 1]
+        # Se tutti i nodi appaiono due volte (loop puro), prendo almeno il primo
+        if not terminals_line and len(nodes) > 0:
+            terminals_line = [nodes[0]]
+        T_nodes.update(terminals_line)
 
-    # Junctions (dove si intersecano almeno 2 linee)
+    ### Junctions (dove si intersecano almeno 2 linee)
     node_count = defaultdict(int)
     for nodes in line_nodes.values():
         for n in nodes:
             node_count[n] += 1
     J_nodes = set(n for n, cnt in node_count.items() if cnt >= 2)
 
+    ### T U J
     special_nodes = T_nodes.union(J_nodes)    # Nodi dove può avvenire il ribilanciamento
 
     # Build directed MULTIDIGRAPH
@@ -220,13 +231,54 @@ def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
     return G_reb
 
 
+# === CREATION of the FULL GRAPH G ===
+def create_full_graph(G_lines, G_reb, save_path=None):
+    """
+    Unisce il grafo delle linee (G_lines) e quello di rebalancing (G_reb)
+    in un unico MultiDiGraph G_full.
+    Ogni arco è etichettato come 'line' o 'rebalancing'.
+    """
+    G_full = nx.MultiDiGraph()
+
+    # === NODI ===
+    # Copio i nodi da entrambi i grafi
+    for n, data in G_lines.nodes(data=True):
+        G_full.add_node(n, **data)
+    for n, data in G_reb.nodes(data=True):
+        if n not in G_full:
+            G_full.add_node(n, **data)
+
+    # === ARCHI DELLE LINEE ===
+    for u, v, key, data in G_lines.edges(keys=True, data=True):
+        edge_data = data.copy()
+        edge_data["type"] = "line"
+        edge_data["ref"] = data.get("ref")
+        G_full.add_edge(u, v, key=f"line_{edge_data['ref']}_{key}", **edge_data)
+
+    # === ARCHI DI REBALANCING ===
+    for u, v, key, data in G_reb.edges(keys=True, data=True):
+        edge_data = data.copy()
+        edge_data["type"] = "rebalancing"
+        edge_data["ref"] = None
+        G_full.add_edge(u, v, key=f"reb_{key}", **edge_data)
+
+    # === Salvataggio opzionale ===
+    if save_path:
+        with open(save_path, "wb") as f:
+            pickle.dump(G_full, f)
+        print(f"G_full saved as {save_path}")
+
+    return G_full
+
 
 
 # === PLOT GRAPHS ===
 # Visualizzazione dei grafi delle linee bus e linee di rebalance
-def plot_transit_graphs(G_lines, G_reb, df_routes, df_stops, title="Transit + Rebalancing"):
+# === PLOT GRAPHS ===
+def plot_transit_graphs(G_lines, G_reb, df_routes, df_stops, title="Transit + Rebalancing", save_fig=False):
     """
-    Plot the bus line graph and rebalancing graph
+    Plot the bus line graph and rebalancing graph.
+    If save_fig=True, saves the figure as a .png in the same folder as this script.
     """
     plt.figure(figsize=(8, 8))
 
@@ -258,7 +310,16 @@ def plot_transit_graphs(G_lines, G_reb, df_routes, df_stops, title="Transit + Re
     plt.ylabel("Y")
     plt.legend()
     plt.grid(True)
+
+    # === Salvataggio ===
+    if save_fig:
+        save_dir = f"C:/Users/vidag/Documents/UNIVERSITA/TESI/code/Thesis/MBA_Optimization/data/bus_lines/cross"
+        filename = title.replace(" ", "_").lower() + ".png"
+        full_path = os.path.join(save_dir, filename)
+        plt.savefig(full_path, dpi=300, bbox_inches='tight')
+
     plt.show()
+
 
 
 
@@ -283,6 +344,12 @@ if __name__ == "__main__":
         save_path="data/bus_lines/cross/cross_rebalancing_graph.gpickle"
     )
 
+    # === Create unified graph G_full (lines + rebalancing) ===
+    G_full = create_full_graph(
+        G_lines,
+        G_reb,
+        save_path="data/bus_lines/cross/cross_G_graph.gpickle"
+    )
     # Plot graphs
-    plot_transit_graphs(G_lines, G_reb, df_routes, df_stops, title="Transit + Rebalancing")
+    plot_transit_graphs(G_lines, G_reb, df_routes, df_stops, title="Transit + Rebalancing", save_fig=True)
     print("Finish")

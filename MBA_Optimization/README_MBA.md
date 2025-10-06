@@ -17,7 +17,7 @@
 MBA_Optimization/  
 │  
 ├── data/
-|   ├──bus_lines/  
+|   ├──bus_lines/     # In ogni script si crea G e G_bar
 |   |   ├──cross/
 |   |   |   └── bus_line_creation_cross.py      # (1) creazione corse con 2 linee incrociate
 |   |   ├──grid/

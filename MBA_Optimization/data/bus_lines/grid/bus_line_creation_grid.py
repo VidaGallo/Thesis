@@ -88,11 +88,12 @@ def create_grid_test_data(n_lines=4, n_stops=5, grid_size=5):
             node_ids_line.append(stop_positions[(x, y)])
 
         # Save line as list of integers
+        geometry_closed = node_ids_line + node_ids_line[-2::-1]   # andata e ritorno
         df_routes_list.append({
             "route": "bus",
             "ref": str(line_idx),
             "name": f"Line {line_idx}",
-            "geometry": node_ids_line  # list of ints
+            "geometry": geometry_closed 
         })
 
         line_idx += 1
@@ -179,19 +180,27 @@ def create_grid_rebalancing_graph(G, df_routes, df_stops, save_path="data/bus_li
     """
     line_nodes = {row['ref']: row['geometry'] for _, row in df_routes.iterrows()}
 
-    # Terminals = first and last stop of each line
+    ### Terminals
+    # Nodi che appaiono una sola volta nella linea (es. 1 e 3 in 1-2-3-2-1)
     T_nodes = set()
     for nodes in line_nodes.values():
-        T_nodes.add(nodes[0])
-        T_nodes.add(nodes[-1])
+        counts = defaultdict(int)
+        for n in nodes:
+            counts[n] += 1
+        terminals_line = [n for n, c in counts.items() if c == 1]
+        # Se tutti i nodi appaiono due volte (loop puro), prendo almeno il primo
+        if not terminals_line and len(nodes) > 0:
+            terminals_line = [nodes[0]]
+        T_nodes.update(terminals_line)
 
-    # Junctions = shared stops
+    ### Junctions = shared stops
     node_count = defaultdict(int)
     for nodes in line_nodes.values():
         for n in nodes:
             node_count[n] += 1
     J_nodes = set(n for n, cnt in node_count.items() if cnt >= 2)
 
+    ### T U J
     special_nodes = T_nodes.union(J_nodes)
 
     G_reb = nx.MultiDiGraph()
@@ -218,9 +227,57 @@ def create_grid_rebalancing_graph(G, df_routes, df_stops, save_path="data/bus_li
 
 
 
+# === CREATION of the FULL GRAPH G ===
+def create_full_grid_graph(G_lines, G_reb, save_path="data/bus_lines/grid/grid_Gfull_graph.gpickle"):
+    """
+    Crea il grafo completo G_full unendo:
+    - gli archi delle linee bus (G_lines)
+    - gli archi di rebalancing (G_reb)
+    Tutti i nodi condivisi; ogni arco ha attributo 'type' ('line' o 'rebalancing').
+    """
+    G_full = nx.MultiDiGraph()
+
+    # === NODI ===
+    for n, data in G_lines.nodes(data=True):
+        G_full.add_node(n, **data)
+    for n, data in G_reb.nodes(data=True):
+        if n not in G_full:
+            G_full.add_node(n, **data)
+
+    # === ARCHI DELLE LINEE ===
+    for u, v, key, data in G_lines.edges(keys=True, data=True):
+        edge_data = data.copy()
+        edge_data["type"] = "line"
+        edge_data["ref"] = data.get("ref")
+        G_full.add_edge(u, v, key=f"line_{edge_data['ref']}_{key}", **edge_data)
+
+    # === ARCHI DI REBALANCING ===
+    for u, v, key, data in G_reb.edges(keys=True, data=True):
+        edge_data = data.copy()
+        edge_data["type"] = "rebalancing"
+        edge_data["ref"] = None
+        G_full.add_edge(u, v, key=f"reb_{key}", **edge_data)
+
+    # === Salvataggio ===
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        with open(save_path, "wb") as f:
+            pickle.dump(G_full, f)
+        print(f"G_full saved as {save_path}")
+
+    return G_full
+
+
+
 
 # === PLOT GRID TRANSIT ===
-def plot_grid_transit(G_lines, G_reb, df_routes, df_stops, title="Grid Transit + Rebalancing"):
+def plot_grid_transit(G_lines, G_reb, df_routes, df_stops,
+                      title="Grid Transit + Rebalancing", save_fig=False):
+    """
+    Plot the grid bus network and rebalancing graph.
+    If save_fig=True, saves the plot as .png in the folder:
+    C:/Users/vidag/Documents/UNIVERSITA/TESI/code/Thesis/MBA_Optimization/data/bus_lines/grid
+    """
     plt.figure(figsize=(8,8))
     # Plot bus lines
     for _, row in df_routes.iterrows():
@@ -247,7 +304,16 @@ def plot_grid_transit(G_lines, G_reb, df_routes, df_stops, title="Grid Transit +
     plt.ylabel("Y")
     plt.legend()
     plt.grid(True)
+
+    # === Salvataggio ===
+    if save_fig:
+        save_dir = f"C:/Users/vidag/Documents/UNIVERSITA/TESI/code/Thesis/MBA_Optimization/data/bus_lines/grid"
+        filename = title.replace(" ", "_").lower() + ".png"
+        full_path = os.path.join(save_dir, filename)
+        plt.savefig(full_path, dpi=300, bbox_inches='tight')
+
     plt.show()
+
 
 
 
@@ -260,5 +326,5 @@ if __name__ == "__main__":
     G_bar = create_G_bar(G_lines, save_path="data/bus_lines/grid/grid_Gbar_graph.gpickle")
     G_reb = create_grid_rebalancing_graph(G_lines, df_routes, df_stops)
 
-    plot_grid_transit(G_lines, G_reb, df_routes, df_stops, title="Grid Transit + Rebalancing")
+    plot_grid_transit(G_lines, G_reb, df_routes, df_stops, title="Grid Transit + Rebalancing", save_fig=True)
     print("Finish")

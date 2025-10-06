@@ -82,12 +82,13 @@ def transit_data_city(city, n_lines=2, n_stops=8, network_type="drive"):
             stop_ids_line.append(stop_id)
             stop_id += 1
 
-        # Save line as list of stop_id integers
+        # Save line as list of integers (with return path)
+        geometry_closed = stop_ids_line + stop_ids_line[-2::-1]   
         df_routes_list.append({
             "route": "bus",
             "ref": str(line_idx),
             "name": f"Line {line_idx}",
-            "geometry": stop_ids_line
+            "geometry": geometry_closed
         })
 
     df_routes = pd.DataFrame(df_routes_list)
@@ -151,19 +152,28 @@ def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
     # line_nodes: ref -> list of stop_id integers
     line_nodes = {row['ref']: row['geometry'] for _, row in df_routes.iterrows()}
 
-    # Terminals
+    ### Terminals
+    # Nodi che appaiono una sola volta nel percorso della linea (es. 1 e 3 in 1-2-3-2-1)
     T_nodes = set()
     for nodes in line_nodes.values():
-        T_nodes.add(nodes[0])
-        T_nodes.add(nodes[-1])
+        counts = defaultdict(int)
+        for n in nodes:
+            counts[n] += 1
+        terminals_line = [n for n, c in counts.items() if c == 1]
+        # Se tutti i nodi appaiono due volte (loop puro), prendo almeno il primo
+        if not terminals_line and len(nodes) > 0:
+            terminals_line = [nodes[0]]
+        T_nodes.update(terminals_line)
 
-    # Junctions
+
+    ### Junctions
     node_count = defaultdict(int)
     for nodes in line_nodes.values():
         for n in nodes:
             node_count[n] += 1
     J_nodes = set(n for n, cnt in node_count.items() if cnt >= 2)
 
+    ### T U J
     special_nodes = T_nodes.union(J_nodes)
 
     # Build directed MULTIGRAPH for rebalancing
@@ -190,33 +200,85 @@ def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
 
 
 
+# === CREATE FULL GRAPH G ===
+# With label type == "line" or "rebalancing"
+def create_full_graph(G_lines, G_reb):
+    """
+    Unisce il grafo delle linee (G_lines) e quello di rebalancing (G_reb)
+    in un unico MultiDiGraph G, mantenendo gli attributi originali.
+    """
+    G_full = nx.MultiDiGraph()
+
+    # === NODI ===
+    for n, data in G_lines.nodes(data=True):
+        G_full.add_node(n, **data)
+    for n, data in G_reb.nodes(data=True):
+        if n not in G_full:
+            G_full.add_node(n, **data)
+
+    # === ARCHI DELLE LINEE ===
+    for u, v, key, data in G_lines.edges(keys=True, data=True):
+        data_full = data.copy()
+        data_full["type"] = "line"
+        G_full.add_edge(u, v, key=f"line_{data.get('ref','')}_{key}", **data_full)
+
+    # === ARCHI DI REBALANCING ===
+    for u, v, key, data in G_reb.edges(keys=True, data=True):
+        data_full = data.copy()
+        data_full["type"] = "rebalancing"
+        data_full["ref"] = None
+        G_full.add_edge(u, v, key=f"reb_{key}", **data_full)
+
+    return G_full
+
+
+
 
 # === PLOT FUNCTION ===
 # Plot del grafo delle linee autobus e linee di rebalance sul grafo della città
-def plot_transit_graph(G_city, G_lines, G_reb, df_routes, df_stops, title="Transit Lines + Rebalancing"):
-    fig, ax = ox.plot_graph(G_city, show=False, close=False, node_size=0, edge_color='lightgray', edge_linewidth=0.5)
+import os
+
+def plot_transit_graph(G_city, G_lines, G_reb, df_routes, df_stops,
+                       title="Transit Lines + Rebalancing", save_fig=False):
+    """
+    Plot del grafo delle linee autobus e linee di rebalance sul grafo della città.
+    Se save_fig=True, salva il grafico in formato PNG nella cartella:
+    C:/Users/vidag/Documents/UNIVERSITA/TESI/code/Thesis/MBA_Optimization/data/bus_lines/city
+    """
+    fig, ax = ox.plot_graph(G_city, show=False, close=False, node_size=0,
+                            edge_color='lightgray', edge_linewidth=0.5)
 
     colors = plt.cm.get_cmap('tab10', len(df_routes))
 
+    # === Disegna linee autobus ===
     for idx, row in df_routes.iterrows():
         stop_ids_line = row['geometry']
-        coords = [(df_stops[df_stops['stop_id']==n]['lon'].values[0],
-                   df_stops[df_stops['stop_id']==n]['lat'].values[0])
+        coords = [(df_stops[df_stops['stop_id'] == n]['lon'].values[0],
+                   df_stops[df_stops['stop_id'] == n]['lat'].values[0])
                   for n in stop_ids_line]
         xs, ys = zip(*coords)
         ax.plot(xs, ys, color=colors(idx), linewidth=2, label=row['name'])
 
+    # === Disegna fermate ===
     ax.scatter(df_stops['lon'], df_stops['lat'], color='red', s=20, zorder=5, label='Stops')
 
-    # Rebalancing arcs
+    # === Disegna archi di rebalancing ===
     for u, v, key in G_reb.edges(keys=True):
         x1, y1 = G_reb.nodes[u]['lon'], G_reb.nodes[u]['lat']
         x2, y2 = G_reb.nodes[v]['lon'], G_reb.nodes[v]['lat']
-        ax.arrow(x1, y1, x2-x1, y2-y1, color='green', alpha=0.5, length_includes_head=True,
-                 head_width=0.1, head_length=0.1)
+        ax.arrow(x1, y1, x2 - x1, y2 - y1, color='green', alpha=0.5,
+                 length_includes_head=True, head_width=0.0005, head_length=0.0005)
 
     ax.set_title(title)
     ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+
+    # === Salvataggio ===
+    if save_fig:
+        save_dir = f"C:/Users/vidag/Documents/UNIVERSITA/TESI/code/Thesis/MBA_Optimization/data/bus_lines/city"
+        filename = title.replace(" ", "_").lower() + ".png"
+        full_path = os.path.join(save_dir, filename)
+        plt.savefig(full_path, dpi=300, bbox_inches='tight')
+
     plt.show()
 
 
@@ -244,6 +306,10 @@ if __name__ == "__main__":
         df_stops,
         save_path=f"data/bus_lines/city/city_{city_clean}_rebalancing_graph.gpickle"
     )
+
+    G_full = create_full_graph(G_lines, G_reb)
+    with open(f"data/bus_lines/city/city_{city_clean}_G_graph.gpickle", "wb") as f:
+        pickle.dump(G_full, f)
 
     plot_transit_graph(G_city, G_lines, G_reb, df_routes, df_stops, title="Transit Lines + Rebalancing")
 
