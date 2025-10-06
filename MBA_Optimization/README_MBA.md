@@ -7,10 +7,8 @@
 
 
 ### Optimization:
-- (A) BASE MODEL: no rebalancing, the passanger can't change the line => OFTEN INFEASABLE SOLUTION
-- (A.bis) BASE MODEL PENAL: as A, but with PENALTIES for requests that can't be satisfied
-- (B) MODEL with CHANGES: as A, but the model can change the line
-- (C) FULL MODEL: with both rebalancing an line changes
+- (A) BASE MODEL: no rebalancing
+- (B) FULL MODEL: with both rebalancing an line changes
 
 
 
@@ -38,10 +36,13 @@ MBA_Optimization/
 │   └── f_for_results.py   # salvataggio e plot delle soluzioni                      
 |
 ├── results/                # output dei risultati dell’ottimizzazione  
-│  
+│   │── cross           
+|   │── grid                
+|   └── city
+|
 │── main_lines.py                # script principale per lines
 │── main_grid.py                 # script principale per grid
-└── main_graph.py                 # script principale per city      
+└── main_graph.py                # script principale per city      
 
 
 

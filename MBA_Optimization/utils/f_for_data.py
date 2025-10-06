@@ -12,7 +12,7 @@ def load_sets(lines_csv, stops_csv, G_lines=None):
     """
     Load transit network data and create sets for ILP.
     Assumes 'geometry' column in lines CSV is a list of ints (stop_ids).
-    Returns sets: L, V, S, J, T, A, R, N
+    Returns sets: L, V, S, J, T, A, R, Nl
     """
     df_lines = pd.read_csv(lines_csv)
     df_stops = pd.read_csv(stops_csv)
@@ -23,7 +23,6 @@ def load_sets(lines_csv, stops_csv, G_lines=None):
     # === Nodes per line ===
     line_nodes = {}
     for _, row in df_lines.iterrows():
-        # 'geometry' is a list of ints
         nodes_list = eval(row['geometry']) if isinstance(row['geometry'], str) else row['geometry']
         line_nodes[row['ref']] = nodes_list
 
@@ -32,35 +31,34 @@ def load_sets(lines_csv, stops_csv, G_lines=None):
     for nodes in line_nodes.values():
         V.update(nodes)
 
-    # === Set of junctions  ===
+    # === Junctions ===
     node_count = defaultdict(int)
     for nodes in line_nodes.values():
         for node in nodes:
             node_count[node] += 1
-    J = set(node for node, cnt in node_count.items() if cnt >= 2)    # At least intersection between 2 bus lines
+    J = set(node for node, cnt in node_count.items() if cnt >= 2)
 
-    # === Set of terminals ===
+    # === Terminals ===
     T = set()
     for nodes in line_nodes.values():
         T.add(nodes[0])
         T.add(nodes[-1])
 
-    # === Set of ordinary stops ===
+    # === Ordinary stops ===
     S = V - J - T
 
-    # === Set of archs ===
+    # === Arcs A ===
     A = set()
     if G_lines:
         for u, v, key, data in G_lines.edges(keys=True, data=True):
-            A.add((u, v, data["ref"]))   # uso la linea 'ref' come identificatore
+            A.add((u, v, data["ref"]))
     else:
         for line_ref, nodes in line_nodes.items():
             for i in range(len(nodes)-1):
                 u, v = nodes[i], nodes[i+1]
                 A.add((u, v, line_ref))
 
-
-    # === Set of rebalancing arcs ===
+    # === Rebalancing arcs R ===
     R_nodes = list(T.union(J))
     R = set()
     for i in range(len(R_nodes)):
@@ -68,8 +66,8 @@ def load_sets(lines_csv, stops_csv, G_lines=None):
             if i != j:
                 R.add((R_nodes[i], R_nodes[j]))
 
-    # === Set og segments Nl (segments of the line l) ===
-    N = {}  # dict: line_ref -> list of segments
+    # === Segments Nl ===
+    Nl = {}  # dict: line_ref -> list of segments (tuple of nodes)
     for line_ref, nodes in line_nodes.items():
         seg_list = []
         current_seg = [nodes[0]]
@@ -80,66 +78,113 @@ def load_sets(lines_csv, stops_csv, G_lines=None):
                 current_seg = [node]
         if len(current_seg) > 1:
             seg_list.append(tuple(current_seg))
-        N[line_ref] = seg_list
+        Nl[line_ref] = seg_list
 
     return {
-        'L': L,   # insieme delle linee della rete (line IDs)
-        'V': V,   # insieme di tutti i nodi della rete (fermate)
-        'S': S,   # insieme delle fermate ordinarie (non giunzioni né terminali)
-        'J': J,   # insieme delle giunzioni (nodi presenti in ≥2 linee)
-        'T': T,   # insieme dei terminali (inizio/fine di ogni linea)
-        'A': A,   # insieme degli archi della rete per ogni linea (i,j,line_ref,key)
-        'R': R,   # insieme degli archi di ribilanciamento tra terminali e giunzioni
-        'N': N    # dizionario: line_ref -> lista dei segmenti (tuple di nodi) tra giunzioni/terminali
+        'L': L,   # linee
+        'V': V,   # nodi
+        'S': S,   # fermate ordinarie
+        'J': J,   # giunzioni
+        'T': T,   # terminali
+        'A': A,   # archi (i,j,ℓ)
+        'R': R,   # archi di ribilanciamento
+        'Nl': Nl  # segmenti N_l
     }
+
 
 
 # === Caricamento delle richieste ===
 # id richiesta, numero persone per richiesta, percorso richiesta
 def load_requests(requests_csv, data):
     """
-    Carica le richieste da CSV e costruisce K, p e Pk per il MILP.
-    
-    Parameters:
-    requests_csv : Percorso al CSV delle richieste.
-    data: Dizionario contenente  'N' e 'L'
-    
-    Returns:
-    K : Lista ID richieste.
-    p : Passeggeri per richiesta {k: p_k}.
-    Pk : Archi del percorso per richiesta {k: [(i,j,ℓ,h), ...]}.
+    Carica le richieste da CSV e costruisce:
+    - K: lista ID richieste
+    - p: passeggeri per richiesta {k: p_k}
+    - Pk: path come lista di nodi [n0,...,nm]
+    - Pkl: archi del path k mappati su linee (i,j,h)
+    - Blk: triple (i,j,m) consecutive sul path k servite dalla stessa linea ℓ
     """
     df_requests = pd.read_csv(requests_csv)
+
+    K = df_requests['request_id'].tolist()
+    p = dict(zip(df_requests['request_id'], df_requests['avg_passengers_per_time_unit']))
+
+    Nl = data['Nl']
+    L  = data['L']
+    A  = data['A']
+
+    Pk  = {}
+    Pkl = {}
     
-    K = df_requests['request_id'].tolist()   # Salvataggio ID della richiesta
-    p = dict(zip(df_requests['request_id'], df_requests['avg_passengers_per_time_unit']))    # Numero di persone per la richiesta k
-    
-    Pk = {}    # percorso richiesta
-    N = data['N']
-    L = data['L']
-    
+    ok = {}
+    dk = {}
+    Blk = defaultdict(list)
+
+    # Dizionario rapido: (i,j) -> linee che coprono quell'arco
+    L_ij = defaultdict(set)
+    for (i, j, ell) in A:
+        L_ij[(i, j)].add(ell)
+
     for _, row in df_requests.iterrows():
         k = row['request_id']
         path_nodes = json.loads(row['path_nodes'])
-        Pk[k] = []
-        
+
+        # === Origine e destinazione ===
+        ok[k] = path_nodes[0]
+        dk[k] = path_nodes[-1]
+
+        # === Pk: lista di nodi ===
+        Pk[k] = path_nodes
+
+        # === Pkl: archi mappati su linee ===
         for i in range(len(path_nodes)-1):
             u, v = path_nodes[i], path_nodes[i+1]
             found = False
-            
-            # mappa l'arco (u,v) su linea ℓ e segmento h
             for ℓ in L:
-                for h, seg in enumerate(N[ℓ]):
+                for h, seg in enumerate(Nl[ℓ]):
                     if u in seg and v in seg:
-                        Pk[k].append((u, v, ℓ, h))
+                        Pkl.setdefault((k, ℓ), []).append((u, v, h))
                         found = True
                         break
                 if found:
                     break
             if not found:
-                raise ValueError(f"Arco ({u},{v}) della richiesta {k} non trovato in alcun segmento delle linee disponibili")
-    
-    return K, p, Pk    
+                raise ValueError(f"Arco ({u},{v}) della richiesta {k} non trovato in alcuna linea")
+
+        # === Blk: triple consecutive (i,j,m) sul path k ===
+        for t in range(1, len(path_nodes)-1):
+            i, j, m = path_nodes[t-1], path_nodes[t], path_nodes[t+1]
+
+            # escludi se j è origine o destinazione di quella richiesta
+            if j == ok[k] or j == dk[k]:
+                continue
+
+            common_lines = L_ij.get((i, j), set()) & L_ij.get((j, m), set())
+            for l in common_lines:
+                Blk[(l, k)].append((i, j, m))
+
+    return K, p, Pk, Pkl, Blk
+
+
+
+def build_delta_sets(Nl, J, T):
+    """
+    Costruisce Δ⁺(j) e Δ⁻(j) per tutti j in T∪J.
+    - Δ⁺(j): segmenti (ℓ,h) che partono da j
+    - Δ⁻(j): segmenti (ℓ,h) che arrivano a j
+    """
+    from collections import defaultdict
+    Delta_plus = defaultdict(set)
+    Delta_minus = defaultdict(set)
+
+    for ell, seg_list in Nl.items():
+        for h, seg in enumerate(seg_list):
+            start, end = seg[0], seg[-1]
+            if start in J or start in T:
+                Delta_plus[start].add((ell, h))
+            if end in J or end in T:
+                Delta_minus[end].add((ell, h))
+    return Delta_plus, Delta_minus
 
 
 
@@ -150,10 +195,10 @@ def assign_travel_times(G, speed_kmh=30):
     Assign travel time (minutes) to edges in a graph.
     Usa direttamente l'attributo 'length' già presente in ogni arco.
     """
-    speed_m_per_min = speed_kmh * 1000 / 60  # m/min
+    speed_m_per_s = speed_kmh * 1000 / 3600  # m/s
 
     for u, v, key, data in G.edges(keys=True, data=True):
-        travel_time = data['length'] / speed_m_per_min
+        travel_time = data['length'] / speed_m_per_s
         data['travel_time'] = travel_time
 
         # Imposta travel_time anche come peso standard dell'arco

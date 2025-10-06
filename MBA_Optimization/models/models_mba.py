@@ -16,75 +16,136 @@ class MBA_ILP_BASE:
         """
         self.data = data
         self.model = Model("MBA_ILP_BASE")
+        self.x = {}
+        self.w = {}
+        self.z = {}
+
 
 
     # === COSTRUZIONE MODELLO ===
     def build(self):
         d = self.data
-        L, N, K, Pk, p, Q, t = d["L"], d["N"], d["K"], d["Pk"], d["p"], d["Q"], d["t"]
+        K, p, Pk, Pkl, Blk = d["K"], d["p"], d["Pk"], d["Pkl"], d["Blk"]
+        L, A, S, J, T, Nl = d["L"], d["A"], d["S"], d["J"], d["T"], d["Nl"]
+        Delta_plus, Delta_minus = d["Delta_plus"], d["Delta_minus"]
+        t, Q = d["t"], d["Q"]
+
 
         # === Variabili ===
-        x = {}  # x_{kijℓ}
+        # x_{k,i,j,l}
         for k in K:
-            for (i, j, l, h) in Pk[k]:  # Pk[k] contiene archi con sezione associata
-                x[k, i, j, l, h] = self.model.addVar(vtype=GRB.BINARY, name=f"x_{k}_{i}_{j}_{l}_{h}")
-
-        w = {}  # w_{ℓh}
-        for l in L:
-            for h, seg in enumerate(N[l]):
-                w[l, h] = self.model.addVar(vtype=GRB.INTEGER, lb=0, name=f"w_{l}_{h}")
-
-        self.model.update()
-
-        # === Obiettivo ===
-        self.model.setObjective(
-            quicksum(t[l, h] * w[l, h] for l in L for h, seg in enumerate(N[l])),
-            GRB.MINIMIZE
-        )
-
-        # === Vincoli: ogni richiesta deve scegliere un percorso ===
-        for k in K:
-            for (i, j) in {(i, j) for (i, j, l, h) in Pk[k]}:
-                self.model.addConstr(
-                    quicksum(x[k, i, j, l, h] for (ii, jj, l, h) in Pk[k] if (ii, jj) == (i, j)) == 1,
-                    name=f"path_{k}_{i}_{j}"
+            for (i, j, l) in A:
+                self.x[k, i, j, l] = self.model.addVar(
+                    vtype=GRB.BINARY, name=f"x_{k}_{i}_{j}_{l}"
                 )
-
-        # === Vincoli: capacità moduli ===
-        for l in L:
-            for h, seg in enumerate(N[l]):
-                self.model.addConstr(
-                    quicksum(p[k] * x[k, i, j, l, h] 
-                            for k in K 
-                            for (i, j, ll, hh) in Pk[k] if ll == l and hh == h) 
-                    <= Q * w[l, h],
-                    name=f"capacity_{l}_{h}"
+        # w_{l,h}
+        for l, segs in Nl.items():
+            for h in range(len(segs)):
+                self.w[l, h] = self.model.addVar(
+                    vtype=GRB.INTEGER, lb=0, name=f"w_{l}_{h}"
+                )
+        # z_{k,j}
+        for k in K:
+            for j in (J):  
+                self.z[k, j] = self.model.addVar(
+                    vtype=GRB.BINARY, name=f"z_{k}_{j}"
                 )
 
         self.model.update()
 
+        # === Funzione Obiettivo ===
+        obj = quicksum(t[l, h] * self.w[l, h] for (l, h) in self.w)
+        obj += quicksum(p[k] * self.z[k, j] for (k, j) in self.z)
+        self.model.setObjective(obj, GRB.MINIMIZE)
 
+
+
+        # === Vincoli ===
+        # (1) Assegnazione: ogni arco del path della richiesta k deve essere servito da una sola linea
+        for k in K:
+            nodes = Pk[k]
+            for idx in range(len(nodes) - 1):
+                i, j = nodes[idx], nodes[idx + 1]
+                lines = [l for (ii, jj, l) in A if ii == i and jj == j]   # prendo tutte le linee
+                self.model.addConstr(
+                    quicksum(self.x[k, i, j, l] for l in lines) == 1,
+                    name=f"assign_{k}_{i}_{j}"
+                )
+        
+        # (2) Continuità su S
+        for (l, k), triples in Blk.items():
+            for (i, j, m) in triples:
+                if j in S:
+                    self.model.addConstr(
+                        self.x[k, i, j, l] == self.x[k, j, m, l],
+                        name=f"contS_{k}_{l}_{i}_{j}_{m}"
+                    )
+
+        # (3) Continuità su J con z
+        for (l, k), triples in Blk.items():
+            for (i, j, m) in triples:
+                if j in J:
+                    self.model.addConstr(
+                        self.x[k, i, j, l] - self.x[k, j, m, l] <= self.z[k, j],
+                        name=f"contJ_plus_{k}_{l}_{i}_{j}_{m}"
+                    )
+                    self.model.addConstr(
+                        self.x[k, i, j, l] - self.x[k, j, m, l] >= -self.z[k, j],
+                        name=f"contJ_minus_{k}_{l}_{i}_{j}_{m}"
+                    )
+        
+
+        # (4) Conservazione moduli ai nodi speciali (T e J)
+        for j in (set(J) | set(T)):
+            incoming = [self.w[ell, h] for (ell, h) in Delta_minus.get(j, [])]   # Se j non è presente, ritorna la lista vuota []
+            outgoing = [self.w[ell, h] for (ell, h) in Delta_plus.get(j, [])]    # Se j non è presente, ritorna la lista vuota []
+            self.model.addConstr(quicksum(incoming) == quicksum(outgoing),
+                                 name=f"w_flow_{j}")
+
+
+        # (5) Capacità: passeggeri ≤ Q * moduli
+        for l, segs in Nl.items():
+            for h, seg in enumerate(segs):
+                for idx in range(len(seg) - 1):
+                    i, j = seg[idx], seg[idx + 1]
+                    self.model.addConstr(
+                        quicksum(p[k] * self.x[k, i, j, l] for k in K) <= Q * self.w[l, h],
+                        name=f"cap_{l}_{h}_{i}_{j}"
+                    )
+
+        
+
+    # === RISOLUIZONE MODELLO ===
     def solve(self):
         self.model.optimize()
-        if self.model.status == GRB.OPTIMAL:
-            print("Optimal solution found")
-            for v in self.model.getVars():
-                if v.X > 1e-6:
-                    print(f"{v.VarName} = {v.X}")
+        print(f"Optimization status: {self.model.Status}")
+        if self.model.Status == GRB.INFEASIBLE:
+            print("⚠️ Modello infeasible, calcolo IIS...")
+            # Gurobi cerca di individuare quali vincoli (o bounds) creano l’infeasibilità.
+            # model.ilp.iis file che contiene solo quei vincoli
+            self.model.computeIIS()
+            self.model.write("results/cross/model.ilp")     # modello completo
+            self.model.write("results/cross/model.iis.ilp")  # vincoli che creano conflitto e rendono il modello unfeasable
 
 
+    # === ESTRAZIONE SOLUZIONE ===
     def get_solution(self):
-        x_sol = {}
-        w_sol = {}
+        x_sol, w_sol, z_sol = {}, {}, {}
+
+        if self.model.Status != GRB.OPTIMAL:   # Se non c’è soluzione ottima, ritorna vuoto
+            return x_sol, w_sol, z_sol
 
         for v in self.model.getVars():
             if v.VarName.startswith("x") and v.X > 1e-6:
-                # x_{k}_{i}_{j}_{l}_{h} → estrai le chiavi
-                parts = v.VarName.split("_")
-                k, i, j, l, h = map(int, parts[1:])
-                x_sol[k, i, j, l, h] = v.X
+                _, k, i, j, ell = v.VarName.split("_")
+                k, i, j = int(k), int(i), int(j)
+                x_sol[(k, i, j, ell)] = 1
             elif v.VarName.startswith("w") and v.X > 1e-6:
-                l, h = map(int, v.VarName.split("_")[1:])
-                w_sol[l, h] = int(v.X)
-
-        return x_sol, w_sol
+                _, ell, h = v.VarName.split("_")
+                h = int(h)
+                w_sol[(ell, h)] = int(round(v.X))
+            elif v.VarName.startswith("z") and v.X > 1e-6:
+                _, k, j = v.VarName.split("_")
+                k, j = int(k), int(j)
+                z_sol[(k, j)] = 1
+        return x_sol, w_sol, z_sol
