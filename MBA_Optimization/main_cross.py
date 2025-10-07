@@ -13,7 +13,7 @@ if __name__ == "__main__":
 
     # === CSV CREATION (optional) ===
     if FLAG_g == 1:
-        df_routes, df_stops = create_test_data_cross(n_stops_line=5)
+        df_routes, df_stops = create_test_data_cross(n_stops_line=4)
         G_lines, df_routes, df_stops = create_lines_graph(df_routes, df_stops)
         G_reb = create_rebalancing_graph(
             G_lines, df_routes, df_stops,
@@ -94,7 +94,7 @@ if __name__ == "__main__":
             G_bar = pickle.load(f)
         generate_requests_graph(
             df_stops, G_bar,     # Using G_bar (simple, directed, no bus lines)
-            n_requests=20,
+            n_requests=2,
             output_csv="data/demands/cross_mobility_requests.csv"
             )
 
