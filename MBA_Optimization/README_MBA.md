@@ -25,8 +25,10 @@ MBA_Optimization/
 |   |   └──city/
 |   |      └── bus_line_creation_city.py        # (3) creazione corse su grafo di una città
 │   └──demands/
-|       └── demand_creation.py  # creazione della domanda (prendendo le bus_lines e gli stop in input)
-|                               # le linee degli autobus sono un grafo e si cerca lo shortest path
+|       │── demand_creation.py  # creazione della domanda (prendendo le bus_lines e gli stop in input)
+|       |                       # le linee degli autobus sono un grafo e si cerca lo shortest path
+|       └── demand_creation_from_Kfull.py    # creazione della domanda (come nel paper, partendo da
+|                                            # tutte le possibili combinazioni (i,j))
 |
 ├── models/  
 │   └── models_mba.py          # definizione modello ILP   

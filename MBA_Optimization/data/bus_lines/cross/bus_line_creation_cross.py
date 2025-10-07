@@ -15,7 +15,7 @@ np.random.seed(123)
 
 # === GENERATE CROSS DATA ===
 # Si vuole generare 2 linee di autobus che si intersecano
-def create_test_data_cross(n_stops=5):
+def create_test_data_cross(n_stops_line=5):
     """
     Generate a minimal transit dataset with 2 lines forming a cross.
     - Each line has `n_stops` stops
@@ -23,6 +23,7 @@ def create_test_data_cross(n_stops=5):
     - Saves CSV files for lines and stops
     - 'geometry' column contains a list of stop_ids (integers) representing the bus line
     """
+    n_stops = n_stops_line
     df_routes_list = []  
     df_stops_list = []
     stop_id = 0
@@ -187,24 +188,26 @@ def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
     line_nodes = {row['ref']: row['geometry'] for _, row in df_routes.iterrows()}
 
     ### Terminals
-    # Nodi che appaiono una sola volta nel percorso della linea (es.1e3 in 1-2-3-2-1)
+    # Primo nodo + eventualmente quello che compare una sola volta (es.1e3 in 1-2-3-2-1)
     T_nodes = set()
     for nodes in line_nodes.values():
         counts = defaultdict(int)
         for n in nodes:
             counts[n] += 1
-        terminals_line = [n for n, c in counts.items() if c == 1]
-        # Se tutti i nodi appaiono due volte (loop puro), prendo almeno il primo
-        if not terminals_line and len(nodes) > 0:
-            terminals_line = [nodes[0]]
+        # Prendi sempre il primo nodo
+        terminals_line = [nodes[0]]
+        # Aggiungi eventuali nodi che compaiono una sola volta
+        terminals_line += [n for n, c in counts.items() if c == 1 and n != nodes[0]]
         T_nodes.update(terminals_line)
 
+
     ### Junctions (dove si intersecano almeno 2 linee)
-    node_count = defaultdict(int)
-    for nodes in line_nodes.values():
-        for n in nodes:
-            node_count[n] += 1
-    J_nodes = set(n for n, cnt in node_count.items() if cnt >= 2)
+    node_in_lines = defaultdict(set)
+    for line_ref, nodes in line_nodes.items():
+        for n in set(nodes):  # conta ogni nodo una sola volta per linea
+            node_in_lines[n].add(line_ref)
+    J_nodes = set(n for n, lines in node_in_lines.items() if len(lines) >= 2)
+
 
     ### T U J
     special_nodes = T_nodes.union(J_nodes)    # Nodi dove può avvenire il ribilanciamento
@@ -274,42 +277,50 @@ def create_full_graph(G_lines, G_reb, save_path=None):
 
 # === PLOT GRAPHS ===
 # Visualizzazione dei grafi delle linee bus e linee di rebalance
-# === PLOT GRAPHS ===
 def plot_transit_graphs(G_lines, G_reb, df_routes, df_stops, title="Transit + Rebalancing", save_fig=False):
     """
     Plot the bus line graph and rebalancing graph.
+    Shows node labels (stop IDs) to identify terminals and junctions.
     If save_fig=True, saves the figure as a .png in the same folder as this script.
     """
     plt.figure(figsize=(8, 8))
 
-    # Plot bus lines
+    # === Plot bus lines ===
     for _, row in df_routes.iterrows():
         stop_ids_line = row['geometry']
-        coords = [(df_stops[df_stops['name']==name]['x'].values[0],
-                   df_stops[df_stops['name']==name]['y'].values[0])
+        coords = [(df_stops[df_stops['name'] == name]['x'].values[0],
+                   df_stops[df_stops['name'] == name]['y'].values[0])
                   for name in stop_ids_line]
         xs, ys = zip(*coords)
-        plt.plot(xs, ys, marker='o', label=row['name'], linewidth=2)
+        plt.plot(xs, ys, marker='o', label=f"Line {row['ref']}", linewidth=2)
 
-    # Plot all stops
+    # === Plot all stops ===
     xs = [row['x'] for _, row in df_stops.iterrows()]
     ys = [row['y'] for _, row in df_stops.iterrows()]
-    plt.scatter(xs, ys, color='red', zorder=5, s=50, label="Stops")
+    plt.scatter(xs, ys, color='red', zorder=5, s=60, label="Stops")
 
-    # Plot rebalancing arcs
+    # === Add node labels (stop IDs) ===
+    for _, row in df_stops.iterrows():
+        x, y = row['x'], row['y']
+        stop_id = row['name']
+        plt.text(x + 0.04, y + 0.04, str(stop_id), fontsize=11, color='black', weight='bold')
+
+    # === Plot rebalancing arcs ===
     for u, v, key in G_reb.edges(keys=True):
         x1, y1 = G_reb.nodes[u]['x'], G_reb.nodes[u]['y']
         x2, y2 = G_reb.nodes[v]['x'], G_reb.nodes[v]['y']
         plt.arrow(x1, y1, x2 - x1, y2 - y1,
-                  color='green', alpha=0.5,
+                  color='green', alpha=0.4,
                   length_includes_head=True,
-                  head_width=0.1, head_length=0.1)
+                  head_width=0.05, head_length=0.05)
 
-    plt.title(title)
+    # === Layout ===
+    plt.title(title, fontsize=14)
     plt.xlabel("X")
     plt.ylabel("Y")
     plt.legend()
     plt.grid(True)
+    plt.axis("equal")
 
     # === Salvataggio ===
     if save_fig:
@@ -327,7 +338,7 @@ def plot_transit_graphs(G_lines, G_reb, df_routes, df_stops, title="Transit + Re
 # === MAIN ===
 if __name__ == "__main__":
     print("Generating test dataset...")
-    df_routes, df_stops = create_test_data_cross(n_stops=3)
+    df_routes, df_stops = create_test_data_cross(n_stops_line=3)
     G_lines, df_routes, df_stops = create_lines_graph(df_routes, df_stops)
 
     # Crea grafo semplice G_bar per i cammini passeggeri
@@ -351,5 +362,5 @@ if __name__ == "__main__":
         save_path="data/bus_lines/cross/cross_G_graph.gpickle"
     )
     # Plot graphs
-    plot_transit_graphs(G_lines, G_reb, df_routes, df_stops, title="Transit + Rebalancing", save_fig=True)
+    plot_transit_graphs(G_lines, G_reb, df_routes, df_stops, title="Cross Transit + Rebalancing", save_fig=True)
     print("Finish")

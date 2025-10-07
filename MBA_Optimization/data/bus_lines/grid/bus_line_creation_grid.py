@@ -181,24 +181,26 @@ def create_grid_rebalancing_graph(G, df_routes, df_stops, save_path="data/bus_li
     line_nodes = {row['ref']: row['geometry'] for _, row in df_routes.iterrows()}
 
     ### Terminals
-    # Nodi che appaiono una sola volta nella linea (es. 1 e 3 in 1-2-3-2-1)
+    # Primo nodo + eventualmente quello che compare una sola volta (es.1e3 in 1-2-3-2-1)
     T_nodes = set()
     for nodes in line_nodes.values():
         counts = defaultdict(int)
         for n in nodes:
             counts[n] += 1
-        terminals_line = [n for n, c in counts.items() if c == 1]
-        # Se tutti i nodi appaiono due volte (loop puro), prendo almeno il primo
-        if not terminals_line and len(nodes) > 0:
-            terminals_line = [nodes[0]]
+        # Prendi sempre il primo nodo
+        terminals_line = [nodes[0]]
+        # Aggiungi eventuali nodi che compaiono una sola volta
+        terminals_line += [n for n, c in counts.items() if c == 1 and n != nodes[0]]
         T_nodes.update(terminals_line)
 
-    ### Junctions = shared stops
-    node_count = defaultdict(int)
-    for nodes in line_nodes.values():
-        for n in nodes:
-            node_count[n] += 1
-    J_nodes = set(n for n, cnt in node_count.items() if cnt >= 2)
+
+    ### Junctions (dove si intersecano almeno 2 linee)
+    node_in_lines = defaultdict(set)
+    for line_ref, nodes in line_nodes.items():
+        for n in set(nodes):  # conta ogni nodo una sola volta per linea
+            node_in_lines[n].add(line_ref)
+    J_nodes = set(n for n, lines in node_in_lines.items() if len(lines) >= 2)
+
 
     ### T U J
     special_nodes = T_nodes.union(J_nodes)

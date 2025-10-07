@@ -4,6 +4,7 @@ import networkx as nx
 import math
 import pickle
 import json
+import ast   # confersione stringe in lista
 
 
 # === DATA LOADER ===
@@ -23,7 +24,10 @@ def load_sets(lines_csv, stops_csv, G_lines=None):
     # === Nodes per line ===
     line_nodes = {}
     for _, row in df_lines.iterrows():
-        nodes_list = eval(row['geometry']) if isinstance(row['geometry'], str) else row['geometry']
+        if isinstance(row['geometry'], str):
+            nodes_list = ast.literal_eval(row['geometry'])
+        else:
+            nodes_list = row['geometry'] 
         line_nodes[row['ref']] = nodes_list
 
     # === Set of nodes ===
@@ -31,18 +35,25 @@ def load_sets(lines_csv, stops_csv, G_lines=None):
     for nodes in line_nodes.values():
         V.update(nodes)
 
-    # === Junctions ===
-    node_count = defaultdict(int)
-    for nodes in line_nodes.values():
-        for node in nodes:
-            node_count[node] += 1
-    J = set(node for node, cnt in node_count.items() if cnt >= 2)
+    # === Junctions ===  
+    node_in_lines = defaultdict(set)
+    for line_ref, nodes in line_nodes.items():
+        for n in set(nodes):  # conta ogni nodo una sola volta per linea
+            node_in_lines[n].add(line_ref)
+    J = set(n for n, lines in node_in_lines.items() if len(lines) >= 2)
+
 
     # === Terminals ===
     T = set()
     for nodes in line_nodes.values():
-        T.add(nodes[0])
-        T.add(nodes[-1])
+        counts = defaultdict(int)
+        for n in nodes:
+            counts[n] += 1
+        # Prendi sempre il primo nodo
+        terminals_line = [nodes[0]]
+        # Aggiungi eventuali nodi che compaiono una sola volta
+        terminals_line += [n for n, c in counts.items() if c == 1 and n != nodes[0]]
+        T.update(terminals_line)
 
     # === Ordinary stops ===
     S = V - J - T
@@ -80,6 +91,17 @@ def load_sets(lines_csv, stops_csv, G_lines=None):
             seg_list.append(tuple(current_seg))
         Nl[line_ref] = seg_list
 
+    # === ORDINAMENTO / CONVERSIONE ===
+    L = sorted(list(L))
+    V = sorted(list(V))
+    S = sorted(list(S))
+    J = sorted(list(J))
+    T = sorted(list(T))
+    A = sorted(list(A))
+    R = sorted(list(R))
+
+
+
     return {
         'L': L,   # linee
         'V': V,   # nodi
@@ -87,8 +109,8 @@ def load_sets(lines_csv, stops_csv, G_lines=None):
         'J': J,   # giunzioni
         'T': T,   # terminali
         'A': A,   # archi (i,j,ℓ)
-        'R': R,   # archi di ribilanciamento
-        'Nl': Nl  # segmenti N_l
+        'R': R,   # archi di ribilanciamento (i,j)
+        'Nl': {l: sorted(v) for l,v in Nl.items()}  # segmenti N_l {ℓ : [segmenti]}
     }
 
 

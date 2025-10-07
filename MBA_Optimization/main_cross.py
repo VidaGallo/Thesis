@@ -5,7 +5,7 @@ from data.demands.demand_creation import *
 from data.bus_lines.cross.bus_line_creation_cross import *
 
 
-FLAG_g = 0   # Re-create the bus lines (YES/NO)
+FLAG_g = 1   # Re-create the bus lines (YES/NO)
 FLAG_r = 1   # Re-create the requests (YES/NO)
 FLAG_d = 1   # Flag for debug
 
@@ -13,7 +13,7 @@ if __name__ == "__main__":
 
     # === CSV CREATION (optional) ===
     if FLAG_g == 1:
-        df_routes, df_stops = create_test_data_cross(n_stops=5)
+        df_routes, df_stops = create_test_data_cross(n_stops_line=4)
         G_lines, df_routes, df_stops = create_lines_graph(df_routes, df_stops)
         G_reb = create_rebalancing_graph(
             G_lines, df_routes, df_stops,
@@ -38,33 +38,35 @@ if __name__ == "__main__":
         lines_csv=f"data/bus_lines/cross/cross_bus_lines.csv",
         stops_csv=f"data/bus_lines/cross/cross_bus_stops.csv"
         )
+    
+    # === DEBUG: VERIFICA STRUTTURE DATI ===
     if FLAG_d == 1:
-        print(f"L (linee): {data['L']}")
-        print(f"Numero archi A: {len(data['A'])}")
-        print(f"Numero segmenti Nl: {sum(len(v) for v in data['Nl'].values())}")
-        # --- Linee ---
-        print(f"\nLinee (L): {data['L']} (totale {len(data['L'])})")
-        # --- Nodi ---
-        print(f"Totale nodi V: {len(data['V'])}")
-        print(f"  Ordinari S ({len(data['S'])}): {sorted(list(data['S']))}")
-        print(f"  Giunzioni J ({len(data['J'])}): {sorted(list(data['J']))}")
-        print(f"  Terminali T ({len(data['T'])}): {sorted(list(data['T']))}")
-        # --- Archi ---
-        print(f"\nArchi A (line arcs): {len(data['A'])}")
-        for (i,j,l) in sorted(data['A']):
-            print(f"  ({i}->{j}, linea {l})")
-        # --- Archi di ribilanciamento ---
-        print(f"\nArchi di ribilanciamento R: {len(data['R'])}")
-        for (i,j) in sorted(data['R']):
-            print(f"  ({i}->{j})")
-        # --- Segmenti Nl ---
-        print(f"\nNumero segmenti totali: {sum(len(v) for v in data['Nl'].values())}")
-        for l, segs in data["Nl"].items():
-            print(f"  Linea {l} ha {len(segs)} segmenti:")
-            for idx, seg in enumerate(segs):
-                print(f"    Segmento {idx}: {seg} (tipo={type(seg)})")
+        print("\n=== DEBUG STRUCTURE (RAW PRINT) ===")
 
-        
+        print("\nL (linee):")
+        print(data["L"])
+
+        print("\nV (nodi):")
+        print(data["V"])
+
+        print("\nS (fermate ordinarie):")
+        print(data["S"])
+
+        print("\nJ (giunzioni):")
+        print(data["J"])
+
+        print("\nT (terminali):")
+        print(data["T"])
+
+        print("\nA (archi di linea) [i,j,l]:")
+        print(data["A"])
+
+        print("\nR (archi di riequilibrio) [i,j]:")
+        print(data["R"])
+
+        print("\nNl (segmenti per linea):")
+        print(data["Nl"])
+
 
 
     # === CAPACITY ===
