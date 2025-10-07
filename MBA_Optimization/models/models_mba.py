@@ -29,7 +29,7 @@ class MBA_ILP_BASE:
         L, A, S, J, T, Nl = d["L"], d["A"], d["S"], d["J"], d["T"], d["Nl"]
         Delta_plus, Delta_minus = d["Delta_plus"], d["Delta_minus"]
         t, Q = d["t"], d["Q"]
-
+    
 
         # === Variabili ===
         # x_{k,i,j,l}
@@ -63,14 +63,24 @@ class MBA_ILP_BASE:
         # === Vincoli ===
         # (1) Assegnazione: ogni arco del path della richiesta k deve essere servito da una sola linea
         for k in K:
-            nodes = Pk[k]
-            for idx in range(len(nodes) - 1):
-                i, j = nodes[idx], nodes[idx + 1]
-                lines = [l for (ii, jj, l) in A if ii == i and jj == j]   # prendo tutte le linee
-                self.model.addConstr(
-                    quicksum(self.x[k, i, j, l] for l in lines) == 1,
-                    name=f"assign_{k}_{i}_{j}"
-                )
+            path = Pk[k]
+            for (i, j) in zip(path[:-1], path[1:]):
+                # Linee che servono questo arco
+                valid_lines = [l for (ii, jj, l) in A if (ii, jj) == (i, j)]
+
+                # Crea variabili x solo per le linee compatibili
+                for l in valid_lines:
+                    if (k, i, j, l) not in self.x:
+                        self.x[k, i, j, l] = self.model.addVar(vtype=GRB.BINARY, name=f"x_{k}_{i}_{j}_{l}")
+
+                # Vincolo di assegnazione: somma delle x deve essere 1
+                if valid_lines:
+                    expr = quicksum(self.x[k, i, j, l] for l in valid_lines)
+                    self.model.addConstr(expr == 1, name=f"assign_{k}_{i}_{j}")
+                else:
+                    print(f"⚠️ Nessuna linea collega ({i},{j}) per la richiesta {k} → vincolo saltato")
+
+
         
         # (2) Continuità su S
         for (l, k), triples in Blk.items():
@@ -94,24 +104,43 @@ class MBA_ILP_BASE:
                         name=f"contJ_minus_{k}_{l}_{i}_{j}_{m}"
                     )
         
+        
+        # (4) Capacità per segmento h della linea l — DIREZIONALE
+        for l, segs in Nl.items():
+            for h, seg in enumerate(segs):
+                arcs_h = [(seg[i], seg[i+1]) for i in range(len(seg) - 1)]
+                self.model.addConstr(
+                    quicksum(
+                        p[k] * self.x[k, i, j, l]
+                        for k in K
+                        for (i, j) in arcs_h
+                        if (k, i, j, l) in self.x        # evita key error
+                    ) <= Q * self.w[l, h],
+                    name=f"capacity_{l}_{h}"
+                )
+        """
+        # (4) Capacità per segmento h della linea ℓ
+        for l, segs in Nl.items():
+            for h, seg in enumerate(segs):
+                arcs_h = [(seg[i], seg[i+1]) for i in range(len(seg) - 1)]
+                self.model.addConstr(
+                    quicksum(
+                        p[k] * self.x[k, i, j, l]
+                        for k in K
+                        for (i, j) in arcs_h
+                    ) <= Q * self.w[l, h],
+                    name=f"capacity_{l}_{h}"
+                )
+        """
 
-        # (4) Conservazione moduli ai nodi speciali (T e J)
+    
+        # (5) Conservazione moduli ai nodi speciali (T e J)
         for j in (set(J) | set(T)):
             incoming = [self.w[ell, h] for (ell, h) in Delta_minus.get(j, [])]   # Se j non è presente, ritorna la lista vuota []
             outgoing = [self.w[ell, h] for (ell, h) in Delta_plus.get(j, [])]    # Se j non è presente, ritorna la lista vuota []
             self.model.addConstr(quicksum(incoming) == quicksum(outgoing),
                                  name=f"w_flow_{j}")
 
-
-        # (5) Capacità: passeggeri ≤ Q * moduli
-        for l, segs in Nl.items():
-            for h, seg in enumerate(segs):
-                for idx in range(len(seg) - 1):
-                    i, j = seg[idx], seg[idx + 1]
-                    self.model.addConstr(
-                        quicksum(p[k] * self.x[k, i, j, l] for k in K) <= Q * self.w[l, h],
-                        name=f"cap_{l}_{h}_{i}_{j}"
-                    )
 
         
 

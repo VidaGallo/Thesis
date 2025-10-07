@@ -158,20 +158,29 @@ def load_requests(requests_csv, data):
         # === Pk: lista di nodi ===
         Pk[k] = path_nodes
 
-        # === Pkl: archi mappati su linee ===
-        for i in range(len(path_nodes)-1):
-            u, v = path_nodes[i], path_nodes[i+1]
-            found = False
+        # === Pkl: archi del percorso k mappati su linee ===
+        for i in range(len(path_nodes) - 1):
+            u, v = path_nodes[i], path_nodes[i + 1]
+            found = False  # flag per verificare se l’arco è stato trovato almeno in una linea
+
             for ℓ in L:
                 for h, seg in enumerate(Nl[ℓ]):
-                    if u in seg and v in seg:
-                        Pkl.setdefault((k, ℓ), []).append((u, v, h))
-                        found = True
-                        break
-                if found:
-                    break
+                    # Scorri ogni segmento della linea ℓ e controlla se (u,v) compare come arco consecutivo
+                    for idx in range(len(seg) - 1):
+                        if seg[idx] == u and seg[idx + 1] == v:
+                            # Arco (u,v) trovato nella direzione corretta nel segmento h della linea ℓ
+                            Pkl.setdefault((k, ℓ), []).append((u, v, h))
+                            found = True
+                            break  # esci dal ciclo sul segmento (passa al prossimo segmento)
+                    if found:
+                        break  # esci dal ciclo su h (passa alla prossima linea se serve)
+
+            # Se dopo aver controllato tutte le linee l’arco non è stato trovato, segnala errore
             if not found:
-                raise ValueError(f"Arco ({u},{v}) della richiesta {k} non trovato in alcuna linea")
+                raise ValueError(
+                    f"Arco ({u},{v}) della richiesta {k} non trovato in alcuna linea o direzione."
+                )
+
 
         # === Blk: triple consecutive (i,j,m) sul path k ===
         for t in range(1, len(path_nodes)-1):

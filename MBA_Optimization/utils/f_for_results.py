@@ -92,22 +92,27 @@ def plot_bus_network(G_lines, w_sol, x_sol=None, z_sol=None,
     plt.show()
 
 
+
+
+
 def save_results(results_folder, prefix, x_sol, w_sol, data,
                  G_lines=None, z_sol=None):
-    os.makedirs(results_folder, exist_ok=True)
+    # === Crea le cartelle se non esistono ===
+    cross_folder = os.path.join(results_folder, "cross")
+    os.makedirs(cross_folder, exist_ok=True)
 
-    # === Salva x ===
-    with open(os.path.join(results_folder, f"cross/{prefix}_solution_x.json"), "w") as f:
+    # === Salva variabili x ===
+    with open(os.path.join(cross_folder, f"{prefix}_solution_x.json"), "w") as f:
         json.dump(
             [
-                {"k": k, "i": i, "j": j, "l": l, "h": h, "value": v}
-                for (k, i, j, l, h), v in x_sol.items()
+                {"k": k, "i": i, "j": j, "l": l, "value": v}
+                for (k, i, j, l), v in x_sol.items()
             ],
             f, indent=2
         )
 
-    # === Salva w ===
-    with open(os.path.join(results_folder, f"cross/{prefix}_solution_w.json"), "w") as f:
+    # === Salva variabili w ===
+    with open(os.path.join(cross_folder, f"{prefix}_solution_w.json"), "w") as f:
         json.dump(
             [
                 {"l": l, "h": h, "value": v}
@@ -118,7 +123,7 @@ def save_results(results_folder, prefix, x_sol, w_sol, data,
 
     # === Salva z se presente ===
     if z_sol:
-        with open(os.path.join(results_folder, f"cross/{prefix}_solution_z.json"), "w") as f:
+        with open(os.path.join(cross_folder, f"{prefix}_solution_z.json"), "w") as f:
             json.dump(
                 [
                     {"k": k, "j": j, "value": v}
@@ -131,7 +136,7 @@ def save_results(results_folder, prefix, x_sol, w_sol, data,
     def stringify_keys(d):
         return {str(k): v for k, v in d.items()}
 
-    with open(os.path.join(results_folder, f"cross/{prefix}_data.json"), "w") as f:
+    with open(os.path.join(cross_folder, f"{prefix}_data.json"), "w") as f:
         json.dump(
             {
                 "t": stringify_keys(data["t"]),
@@ -143,7 +148,7 @@ def save_results(results_folder, prefix, x_sol, w_sol, data,
 
     # === Salva info sul grafo se richiesto ===
     if G_lines:
-        with open(os.path.join(results_folder, f"cross/{prefix}_graph_edges.json"), "w") as f:
+        with open(os.path.join(cross_folder, f"{prefix}_graph_edges.json"), "w") as f:
             json.dump(
                 [
                     {"u": u, "v": v, "key": k, **attrs}
@@ -151,3 +156,22 @@ def save_results(results_folder, prefix, x_sol, w_sol, data,
                 ],
                 f, indent=2
             )
+
+    # === Salva il modello Gurobi in formato ILP (se presente in data) ===
+    if "model" in data:
+        ilp_path = os.path.join(cross_folder, f"{prefix}_model.ilp")
+        try:
+            data["model"].write(ilp_path)
+            print(f"✅ Modello salvato in formato ILP: {ilp_path}")
+        except Exception as e:
+            print(f"⚠️ Errore nel salvataggio del modello ILP: {e}")
+
+        # (Facoltativo) salva anche la soluzione .sol di Gurobi
+        try:
+            sol_path = os.path.join(cross_folder, f"{prefix}_solution.sol")
+            data["model"].write(sol_path)
+            print(f"✅ Soluzione salvata in formato .sol: {sol_path}")
+        except Exception as e:
+            print(f"⚠️ Errore nel salvataggio del file .sol: {e}")
+
+    print(f"✅ Tutti i risultati salvati in: {cross_folder}")

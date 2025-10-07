@@ -7,13 +7,13 @@ from data.bus_lines.cross.bus_line_creation_cross import *
 
 FLAG_g = 1   # Re-create the bus lines (YES/NO)
 FLAG_r = 1   # Re-create the requests (YES/NO)
-FLAG_d = 1   # Flag for debug
+FLAG_d = 0   # Flag for debug
 
 if __name__ == "__main__":
 
     # === CSV CREATION (optional) ===
     if FLAG_g == 1:
-        df_routes, df_stops = create_test_data_cross(n_stops_line=4)
+        df_routes, df_stops = create_test_data_cross(n_stops_line=5)
         G_lines, df_routes, df_stops = create_lines_graph(df_routes, df_stops)
         G_reb = create_rebalancing_graph(
             G_lines, df_routes, df_stops,
@@ -94,7 +94,7 @@ if __name__ == "__main__":
             G_bar = pickle.load(f)
         generate_requests_graph(
             df_stops, G_bar,     # Using G_bar (simple, directed, no bus lines)
-            n_requests=5,
+            n_requests=20,
             output_csv="data/demands/cross_mobility_requests.csv"
             )
 
@@ -121,9 +121,10 @@ if __name__ == "__main__":
     # === BUILD Δ⁺/Δ⁻ ===
     Delta_plus, Delta_minus = build_delta_sets(data["Nl"], data["J"], data["T"])
     data["Delta_plus"], data["Delta_minus"] = Delta_plus, Delta_minus
-    print("\n=== Δ⁺ and Δ⁻ ===")
-    for j in (data["J"] | data["T"]):
-        print(f"Node {j}: Δ⁺={Delta_plus.get(j, set())}, Δ⁻={Delta_minus.get(j, set())}")
+    if FLAG_d == 1:
+        print("\n=== Δ⁺ and Δ⁻ ===")
+        for j in (set(data["J"]) | set(data["T"])):
+            print(f"Node {j}: Δ⁺={Delta_plus.get(j, set())}, Δ⁻={Delta_minus.get(j, set())}")
 
 
 
@@ -135,14 +136,27 @@ if __name__ == "__main__":
     # === OPTIMIZATION ===
     mba.solve()
 
+    for v in mba.model.getVars():
+        if v.VarName.startswith("x") and v.X > 1e-6:
+            print(v.VarName, v.X)
+
+    print("\n=== DEBUG: tutti i w (anche zero) ===")
+    for l, segs in data["Nl"].items():
+        for h, seg in enumerate(segs):
+            var_name = f"w_{l}_{h}"
+            var = mba.model.getVarByName(var_name)
+            val = var.X if var is not None else None
+            print(f"Linea {l}, segmento {h}, seg={seg}, w={val}, t={data['t'].get((l,h))}")
+
+
 
     # === RESULTS ===
-    results_folder = "results"
-    prefix = "cross_BASE"
     x_sol, w_sol, z_sol = mba.get_solution()
-    plot_bus_network(G_lines, w_sol, x_sol=x_sol, z_sol=z_sol, show_passengers=True)
-    save_results(results_folder, prefix, x_sol, w_sol, data, z_sol=z_sol)
+    data["model"] = mba.model 
+    save_results("results", "cross_BASE", x_sol, w_sol, data, G_lines=G_lines, z_sol=z_sol)
     print("Results saved")
+    plot_bus_network(G_lines, w_sol, x_sol=x_sol, z_sol=z_sol, show_passengers=True)
+    
 
 
 

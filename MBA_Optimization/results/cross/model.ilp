@@ -1,8 +1,0 @@
-\ Model MBA_ILP_BASE_copy
-\ LP format - for model browsing. Use MPS format to capture full model detail.
-Minimize
- 
-Subject To
- assign_1_1_6: = 1
-Bounds
-End
