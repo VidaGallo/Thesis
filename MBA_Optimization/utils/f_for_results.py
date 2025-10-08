@@ -63,7 +63,7 @@ def display_results(model_obj, name_prefix, data):
 
 
 # === SAVE FUNCTION ===
-def save_results_model(model_obj, name_prefix, data, G_lines):
+def save_results_model(model_obj, name_prefix, data, G_lines, type_f="cross"):
     """
     Estrae le soluzioni dal modello e le salva nei file JSON/ILP.
     - Compatibile con BASE (x,w,z) e FULL (x,w,z,v)
@@ -83,7 +83,7 @@ def save_results_model(model_obj, name_prefix, data, G_lines):
 
     # === Salvataggio su file ===
     save_results("results", name_prefix, x_sol, w_sol, data,
-                 G_lines=G_lines, z_sol=z_sol, v_sol=v_sol)
+                 G_lines=G_lines, z_sol=z_sol, v_sol=v_sol, type_f=type_f)
     print(f"✅ Results saved for {name_prefix}")
 
     # === Return dinamico ===
@@ -95,16 +95,20 @@ def save_results_model(model_obj, name_prefix, data, G_lines):
 
 # === CORE SAVE FUNCTION ===
 def save_results(results_folder, prefix, x_sol, w_sol, data,
-                 G_lines=None, z_sol=None, v_sol=None):
+                 G_lines=None, z_sol=None, v_sol=None, type_f="cross"):
     """
     Salva tutte le informazioni del modello (BASE o FULL)
     in formato JSON e .ILP/.SOL.
     """
-    cross_folder = os.path.join(results_folder, "cross")
-    os.makedirs(cross_folder, exist_ok=True)
+    if type_f == "cross":
+        folder = os.path.join(results_folder, "cross")
+        os.makedirs(folder, exist_ok=True)
+    if type_f == "grid":
+        folder = os.path.join(results_folder, "grid")
+        os.makedirs(folder, exist_ok=True)
 
     # === x ===
-    with open(os.path.join(cross_folder, f"{prefix}_solution_x.json"), "w") as f:
+    with open(os.path.join(folder, f"{prefix}_solution_x.json"), "w") as f:
         json.dump(
             [{"k": k, "i": i, "j": j, "l": l, "value": v}
              for (k, i, j, l), v in x_sol.items()],
@@ -112,7 +116,7 @@ def save_results(results_folder, prefix, x_sol, w_sol, data,
         )
 
     # === w ===
-    with open(os.path.join(cross_folder, f"{prefix}_solution_w.json"), "w") as f:
+    with open(os.path.join(folder, f"{prefix}_solution_w.json"), "w") as f:
         json.dump(
             [{"l": l, "h": h, "value": v}
              for (l, h), v in w_sol.items()],
@@ -121,7 +125,7 @@ def save_results(results_folder, prefix, x_sol, w_sol, data,
 
     # === z (se presente) ===
     if z_sol:
-        with open(os.path.join(cross_folder, f"{prefix}_solution_z.json"), "w") as f:
+        with open(os.path.join(folder, f"{prefix}_solution_z.json"), "w") as f:
             json.dump(
                 [{"k": k, "j": j, "value": v}
                  for (k, j), v in z_sol.items()],
@@ -130,7 +134,7 @@ def save_results(results_folder, prefix, x_sol, w_sol, data,
 
     # === v (se presente, solo nel modello FULL) ===
     if v_sol:
-        with open(os.path.join(cross_folder, f"{prefix}_solution_v.json"), "w") as f:
+        with open(os.path.join(folder, f"{prefix}_solution_v.json"), "w") as f:
             json.dump(
                 [{"i": i, "j": j, "value": v}
                  for (i, j), v in v_sol.items()],
@@ -141,7 +145,7 @@ def save_results(results_folder, prefix, x_sol, w_sol, data,
     def stringify_keys(d):
         return {str(k): v for k, v in d.items()}
 
-    with open(os.path.join(cross_folder, f"{prefix}_data.json"), "w") as f:
+    with open(os.path.join(folder, f"{prefix}_data.json"), "w") as f:
         json.dump(
             {
                 "t": stringify_keys(data["t"]),
@@ -153,7 +157,7 @@ def save_results(results_folder, prefix, x_sol, w_sol, data,
 
     # === Salva il grafo (solo se presente) ===
     if G_lines:
-        with open(os.path.join(cross_folder, f"{prefix}_graph_edges.json"), "w") as f:
+        with open(os.path.join(folder, f"{prefix}_graph_edges.json"), "w") as f:
             json.dump(
                 [
                     {"u": u, "v": v, "key": k, **attrs}
@@ -164,8 +168,8 @@ def save_results(results_folder, prefix, x_sol, w_sol, data,
 
     # === Salva modello e soluzione Gurobi ===
     if "model" in data:
-        ilp_path = os.path.join(cross_folder, f"{prefix}_model.ilp")
-        sol_path = os.path.join(cross_folder, f"{prefix}_solution.sol")
+        ilp_path = os.path.join(folder, f"{prefix}_model.ilp")
+        sol_path = os.path.join(folder, f"{prefix}_solution.sol")
 
         try:
             data["model"].write(ilp_path)
@@ -179,95 +183,59 @@ def save_results(results_folder, prefix, x_sol, w_sol, data,
         except Exception as e:
             print(f"⚠️ Errore nel salvataggio SOL: {e}")
 
-    print(f"✅ Tutti i risultati salvati in: {cross_folder}")
+    print(f"✅ Tutti i risultati salvati in: {folder}")
 
 
 
-import matplotlib.pyplot as plt
-import networkx as nx
-import matplotlib.cm as cm
-from matplotlib.patches import Patch
-import random
 
-def plot_comparison_base_full(G_lines, G_reb, w_base, w_full, v_full):
-    """
-    Confronta visualmente il modello BASE e FULL:
-    - BASE: solo archi delle linee bus (etichette w)
-    - FULL: include anche archi di rebalance (etichette w e v)
-    - Ogni arco direzionale (i→j) è disegnato separatamente.
-    """
-    fig, axes = plt.subplots(1, 2, figsize=(16, 8))
-    titles = ["BASE (senza riequilibrio)", "FULL (con riequilibrio)"]
-    cmap = cm.get_cmap("tab20")
 
-    pos = {n: (G_lines.nodes[n]['x'], G_lines.nodes[n]['y']) for n in G_lines.nodes()}
 
-    for ax_idx, ax in enumerate(axes):
-        plt.sca(ax)
-        ax.set_title(titles[ax_idx], fontsize=13, fontweight="bold")
-        ax.axis("off")
 
-        # Disegna nodi
-        nx.draw_networkx_nodes(G_lines, pos, node_size=450, node_color="lightblue", ax=ax)
-        nx.draw_networkx_labels(G_lines, pos, font_size=9, font_color="black", ax=ax)
+import json
 
-        # --- Disegna archi direzionali delle linee bus
-        for u, v, key, data in G_lines.edges(keys=True, data=True):
-            l = data.get("ref")
-            color = cmap(int(l) % 20)
+def compute_VOS_VOR(data, w_rigid, w_semi, w_flex, v_flex=None, save_path="results/grid_VOS_VOR.json"):
 
-            # offset curvo in base alla direzione per distinguere 0→1 e 1→0
-            rad = 0.25 if u < v else -0.25
+    Q = data["Q"]
 
-            nx.draw_networkx_edges(G_lines, pos, edgelist=[(u, v)],
-                                   edge_color=color, width=2.0,
-                                   connectionstyle=f"arc3,rad={rad}",
-                                   arrows=True, arrowsize=14, ax=ax)
+    # === CAPACITÀ TOTALE DISPONIBILE (TCAP) ===
+    # Rigid: w_l costante lungo tutta la linea → somma su tutti gli archi della linea
+    TCAP_rigid = Q * sum(
+        sum(val for (l_, h_), val in data["t"].items() if l_ == int(l)) * w
+        for l, w in w_rigid.items()
+        )
+    
+    # Semi: somma sui segmenti
+    TCAP_semi = Q * sum(data["t"][(int(l), h)] * w for (l, h), w in w_semi.items())
 
-            # Etichetta w su ciascun arco
-            for h in range(10):
-                w_dict = w_full if ax_idx else w_base
-                if (l, h) in w_dict and w_dict[(l, h)] > 0:
-                    w_val = w_dict[(l, h)]
-                    x1, y1 = pos[u]
-                    x2, y2 = pos[v]
-                    xm, ym = (x1 + x2)/2, (y1 + y2)/2
+    # Flex: somma segmenti + archi di rebalancing
+    TCAP_flex = Q * sum(data["t"][(int(l), h)] * w for (l, h), w in w_flex.items())
+    if v_flex is not None:
+        TCAP_flex += Q * sum(data["tr"][(i, j)] * v for (i, j), v in v_flex.items())
 
-                    # offset differenziato per direzioni opposte
-                    offset_y = (0.25 if rad > 0 else -0.25) + random.uniform(-0.05, 0.05)
-                    offset_x = random.uniform(-0.1, 0.1)
+    # === INDICATORI ===
+    VOS = (TCAP_rigid - TCAP_semi) / TCAP_rigid if TCAP_rigid else 0
+    VOR = (TCAP_semi - TCAP_flex) / TCAP_semi if TCAP_semi else 0
+    VOF = (TCAP_rigid - TCAP_flex) / TCAP_rigid if TCAP_rigid else 0
 
-                    ax.text(xm + offset_x, ym + offset_y, f"w={w_val}",
-                            fontsize=8, color="black", ha="center",
-                            bbox=dict(facecolor="white", alpha=0.7, edgecolor="none"))
+    results = {
+        "TCAP_rigid": TCAP_rigid,
+        "TCAP_semi": TCAP_semi,
+        "TCAP_flex": TCAP_flex,
+        "VOS": VOS,
+        "VOR": VOR,
+        "VOF": VOF
+    }
 
-        # --- SOLO FULL: archi di rebalance
-        if ax_idx == 1 and v_full:
-            for (i, j), val in v_full.items():
-                if val > 1e-6:
-                    rad = 0.15 if i < j else -0.15
-                    nx.draw_networkx_edges(G_reb, pos, edgelist=[(i, j)],
-                                           edge_color="red", width=2,
-                                           style="dashed", arrows=True,
-                                           connectionstyle=f"arc3,rad={rad}",
-                                           arrowsize=12, ax=ax)
-                    x1, y1 = pos[i]
-                    x2, y2 = pos[j]
-                    xm, ym = (x1 + x2)/2, (y1 + y2)/2
+    with open(save_path, "w") as f:
+        json.dump(results, f, indent=4)
 
-                    # offset visivo
-                    offset_y = (0.15 if rad > 0 else -0.15)
-                    offset_x = random.uniform(-0.05, 0.05)
+    print("\n===== FLEXIBILITY INDICATORS =====")
+    print(f"TCAP rigid : {TCAP_rigid:.2f}")
+    print(f"TCAP semi  : {TCAP_semi:.2f}")
+    print(f"TCAP flex  : {TCAP_flex:.2f}")
+    print(f"VOS (sharing): {VOS*100:.2f}%")
+    print(f"VOR (rebal.): {VOR*100:.2f}%")
+    print(f"VOF (total) : {VOF*100:.2f}%")
+    print(f"Results saved to {save_path}")
 
-                    ax.text(xm + offset_x, ym + offset_y, f"v={val:.1f}",
-                            fontsize=8, color="red", ha="center",
-                            bbox=dict(facecolor="white", alpha=0.7, edgecolor="none"))
-
-    # --- Legenda
-    legend_elements = [
-        Patch(facecolor='lightblue', label='Nodi'),
-        Patch(facecolor='red', label='Rebalance (v)', edgecolor='red')
-    ]
-    plt.legend(handles=legend_elements, loc='upper center', ncol=2, fontsize=9)
-    plt.tight_layout()
-    plt.show()
+    return results

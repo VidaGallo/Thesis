@@ -33,6 +33,9 @@ if __name__ == "__main__":
     # === CAPACITÀ ===
     data["Q"] = 8
 
+    # === ALPHA ===
+    data["alpha"] = 0.1
+
     # === TRAVEL TIMES ===
     with open("data/bus_lines/grid/grid_bus_lines_graph.gpickle", "rb") as f:
         G_lines = pickle.load(f)
@@ -90,28 +93,47 @@ if __name__ == "__main__":
         for j in (set(data["J"]) | set(data["T"])):
             print(f"Node {j}: Δ⁺={Delta_plus.get(j, set())}, Δ⁻={Delta_minus.get(j, set())}")
 
-    # === MODELLI ===
-    mba_base = MBA_ILP_BASE(data)
-    mba_base.build()
+ 
+ 
+     # === MODEL CREATION ===
+    mba_rigid = MBA_ILP_RIGID(data)
+    mba_rigid.build()
+    mba_semi = MBA_ILP_SEMI(data)
+    mba_semi.build()
+    mba_flex = MBA_ILP_FLEX(data)
+    mba_flex.build()
 
-    mba_full = MBA_ILP_FULL(data)
-    mba_full.build()
 
-    # === RISOLUZIONE ===
-    print("\n\n\n============== RISOLUZIONE BASE MODEL (GRID) ==============\n")
-    mba_base.solve()
-    print("\n\n\n============== RISOLUZIONE FULL MODEL (GRID) ==============\n")
-    mba_full.solve()
+
+
+    # === OPTIMIZATION ===
+    print("\n\n\n")
+    print("\n============== RISOLUZIONE RIGID MODEL ==============\n")
+    mba_rigid.solve()
+    print("\n\n\n")
+    print("============== RISOLUZIONE SEMI MODEL ==============\n")
+    mba_semi.solve()
+    print("\n\n\n")
+    print("\n============== RISOLUZIONE FLEX MODEL ==============\n")
+    mba_flex.solve()
 
     print("\n\n\n")
+    
+
     # === DISPLAY + SAVE ===
     if FLAG_d == 1:
-        display_results(mba_base, "grid_BASE", data)
-    x_base, w_base, z_base = save_results_model(mba_base, "grid_BASE", data, G_lines)
+        display_results(mba_rigid, "grid_RIGID", data)
+    x_rigid, w_rigid, z_rigid = save_results_model(mba_rigid, "grid_RIGID", data, G_lines, "grid")
 
     if FLAG_d == 1:
-        display_results(mba_full, "grid_FULL", data)
-    x_full, w_full, z_full, v_full = save_results_model(mba_full, "grid_FULL", data, G_lines)
+        display_results(mba_semi, "grid_SEMI", data)
+    x_semi, w_semi, z_semi = save_results_model(mba_semi, "grid_SEMI", data, G_lines, "grid")
 
-    # === OPTIONAL PLOT ===
-    #plot_comparison_base_full(G_lines, G_reb, w_base, w_full, v_full)
+
+    if FLAG_d == 1:
+        display_results(mba_flex, "grid_FLEX", data)
+    x_flex, w_flex, z_flex, v_flex = save_results_model(mba_flex, "grid_FLEX", data, G_lines, "grid")
+
+
+    # === COMPUTE FLEXIBILITY INDICATORS ===
+    results_VOS_VOR = compute_VOS_VOR(data, w_rigid, w_semi, w_flex, v_flex)

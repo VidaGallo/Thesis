@@ -71,6 +71,9 @@ if __name__ == "__main__":
     # === CAPACITY ===
     data["Q"] = 8
 
+    # === ALPHA ===
+    data["alpha"] = 0.1
+
 
 
     # === TRAVEL TIME ===
@@ -146,35 +149,40 @@ if __name__ == "__main__":
 
 
     # === MODEL CREATION ===
-    mba_base = MBA_ILP_BASE(data)
-    mba_base.build()
-    mba_full = MBA_ILP_FULL(data)
-    mba_full.build()
+    mba_rigid = MBA_ILP_RIGID(data)
+    mba_rigid.build()
+    mba_semi = MBA_ILP_SEMI(data)
+    mba_semi.build()
+    mba_flex = MBA_ILP_FLEX(data)
+    mba_flex.build()
 
 
     # === OPTIMIZATION ===
     print("\n\n\n")
-    print("============== RISOLUZIONE BASE MODEL ==============\n")
-    mba_base.solve()
+    print("\n============== RISOLUZIONE RIGID MODEL ==============\n")
+    mba_rigid.solve()
     print("\n\n\n")
-    print("\n============== RISOLUZIONE FULL MODEL ==============\n")
-    mba_full.solve()
+    print("============== RISOLUZIONE SEMI MODEL ==============\n")
+    mba_semi.solve()
+    print("\n\n\n")
+    print("\n============== RISOLUZIONE FLEX MODEL ==============\n")
+    mba_flex.solve()
 
     print("\n\n\n")
     
-    # === DISPLAY + SAVE per entrambi ===
+
+    # === DISPLAY + SAVE ===
     if FLAG_d == 1:
-        display_results(mba_base, "cross_BASE", data)
-    x_base, w_base, z_base = save_results_model(mba_base, "cross_BASE", data, G_lines)
+        display_results(mba_rigid, "cross_RIGID", data)
+    x_rigid, w_rigid, z_rigid = save_results_model(mba_rigid, "cross_RIGID", data, G_lines, "cross")
+
+    if FLAG_d == 1:
+        display_results(mba_semi, "cross_SEMI", data)
+    x_semi, w_semi, z_semi = save_results_model(mba_semi, "cross_SEMI", data, G_lines, "cross")
 
 
     if FLAG_d == 1:
-        display_results(mba_full, "cross_FULL", data)
-    x_full, w_full, z_full, v_full = save_results_model(mba_full, "cross_FULL", data, G_lines)
+        display_results(mba_flex, "cross_FLEX", data)
+    x_flex, w_flex, z_flex, v_flex = save_results_model(mba_flex, "cross_FLEX", data, G_lines, "cross")
 
-
-
-
-    # Plot confronto
-    #plot_comparison_base_full(G_lines, G_reb, w_base, w_full, v_full)
 
