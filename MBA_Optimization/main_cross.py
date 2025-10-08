@@ -7,7 +7,7 @@ from data.bus_lines.cross.bus_line_creation_cross import *
 
 FLAG_g = 1   # Re-create the bus lines (YES/NO)
 FLAG_r = 1   # Re-create the requests (YES/NO)
-FLAG_d = 0   # Flag for debug
+FLAG_d = 1   # Flag for debug
 
 if __name__ == "__main__":
 
@@ -41,7 +41,7 @@ if __name__ == "__main__":
     
     # === DEBUG: VERIFICA STRUTTURE DATI ===
     if FLAG_d == 1:
-        print("\n=== DEBUG STRUCTURE (RAW PRINT) ===")
+        print("\n=== DEBUG STRUCTURE ===")
 
         print("\nL (linee):")
         print(data["L"])
@@ -92,9 +92,9 @@ if __name__ == "__main__":
         df_stops = pd.read_csv("data/bus_lines/cross/cross_bus_stops.csv")
         with open("data/bus_lines/cross/cross_Gbar_graph.gpickle", "rb") as f:
             G_bar = pickle.load(f)
-        generate_requests_graph(
+        generate_requests_graph_asymm(    # symm or asymm
             df_stops, G_bar,     # Using G_bar (simple, directed, no bus lines)
-            n_requests=2,
+            n_requests=10,
             output_csv="data/demands/cross_mobility_requests.csv"
             )
 
@@ -129,34 +129,29 @@ if __name__ == "__main__":
 
 
     # === MODEL CREATION ===
-    mba = MBA_ILP_BASE(data)
-    mba.build()
+    mba_base = MBA_ILP_BASE(data)
+    mba_base.build()
+    #mba_full = MBA_ILP_FULL(data)
+    #mba_full.build()
 
 
     # === OPTIMIZATION ===
-    mba.solve()
+    mba_base.solve()
+    #mba_full.solve()
 
-    for v in mba.model.getVars():
-        if v.VarName.startswith("x") and v.X > 1e-6:
-            print(v.VarName, v.X)
-
-    print("\n=== DEBUG: tutti i w (anche zero) ===")
-    for l, segs in data["Nl"].items():
-        for h, seg in enumerate(segs):
-            var_name = f"w_{l}_{h}"
-            var = mba.model.getVarByName(var_name)
-            val = var.X if var is not None else None
-            print(f"Linea {l}, segmento {h}, seg={seg}, w={val}, t={data['t'].get((l,h))}")
+    # === DISPLAY + SAVE per entrambi ===
+    if FLAG_d == 1:
+        display_results(mba_base, "cross_BASE", data)
+    x_base, w_base, z_base = save_results_model(mba_base, "cross_BASE", data, G_lines)
+    plot_bus_network(G_lines, data, w_sol=w_base, x_sol=x_base, z_sol=z_base, title="Soluzione modello BASE")
 
 
+    #if FLAG_d == 1:
+    #    display_results(mba_full, "cross_FULL", data)
+    #x_full, w_full, z_full = save_results_model(mba_full, "cross_FULL", data, G_lines)
+    #plot_bus_network(G_lines, data, w_sol=w_full, x_sol=x_full, z_sol=z_full, title="Soluzione modello FULL")
 
-    # === RESULTS ===
-    x_sol, w_sol, z_sol = mba.get_solution()
-    data["model"] = mba.model 
-    save_results("results", "cross_BASE", x_sol, w_sol, data, G_lines=G_lines, z_sol=z_sol)
-    print("Results saved")
-    plot_bus_network(G_lines, w_sol, x_sol=x_sol, z_sol=z_sol, show_passengers=True)
-    
+        
 
 
 

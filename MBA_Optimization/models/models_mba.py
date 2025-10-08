@@ -92,6 +92,7 @@ class MBA_ILP_BASE:
                     )
 
         # (3) Continuità su J con z
+        """ VERSIONE PAPER:
         for (l, k), triples in Blk.items():
             for (i, j, m) in triples:
                 if j in J:
@@ -103,6 +104,29 @@ class MBA_ILP_BASE:
                         self.x[k, i, j, l] - self.x[k, j, m, l] >= -self.z[k, j],
                         name=f"contJ_minus_{k}_{l}_{i}_{j}_{m}"
                     )
+        """
+        """ PICCOLA MODIFICA: """
+        #  Caso                           | Significato fisico                                  | Effetto sul modello
+        # ---------------------------------------------------------------------------------------------------------
+        #  y_in_l = 1 , y_out_l = 1       → la richiesta arriva e riparte sulla stessa linea     → z_kj può restare 0
+        #  y_in_l = 1 , y_out_l = 0       → la richiesta scende da quella linea in j             → forza z_kj = 1
+        #  y_in_l = 0 , y_out_l = 1       → la richiesta sale su quella linea in j               → forza z_kj = 1
+        #  y_in_l = 0 , y_out_l = 0       → la richiesta non passa su quella linea               → nessun effetto
+        # Fix cross-line: attiva z_kj anche per cambi linea inter-linea
+        for k in K:
+            pairs_k = set(zip(Pk[k][:-1], Pk[k][1:]))   # Crea l’elenco degli archi effettivamente percorsi dalla richiesta k
+            for j in J:
+                for l in L:
+                    #Costruisce la somma degli archi (i,j) della linea l che entrano/escono nel nodo j nel percorso di k.
+                    y_in_l  = quicksum(self.x[k, i, jj, l]
+                                    for (i, jj, ll) in A
+                                    if jj==j and ll==l and (i, jj) in pairs_k and (k,i,jj,l) in self.x)
+                    y_out_l = quicksum(self.x[k, jj, m, l]
+                                    for (jj, m, ll) in A
+                                    if jj==j and ll==l and (jj, m) in pairs_k and (k,jj,m,l) in self.x)
+                    self.model.addConstr(y_in_l - y_out_l <= self.z[k, j])
+                    self.model.addConstr(y_out_l - y_in_l <= self.z[k, j])
+
         
         
         # (4) Capacità per segmento h della linea l — DIREZIONALE
@@ -157,6 +181,8 @@ class MBA_ILP_BASE:
             self.model.write("results/cross/model.iis.ilp")  # vincoli che creano conflitto e rendono il modello unfeasable
 
 
+
+
     # === ESTRAZIONE SOLUZIONE ===
     def get_solution(self):
         x_sol, w_sol, z_sol = {}, {}, {}
@@ -178,3 +204,9 @@ class MBA_ILP_BASE:
                 k, j = int(k), int(j)
                 z_sol[(k, j)] = 1
         return x_sol, w_sol, z_sol
+    
+
+
+
+
+
