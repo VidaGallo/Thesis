@@ -41,9 +41,9 @@ def generate_requests_graph_symm(df_stops, G_bar, n_requests=20, output_csv=None
         path_rev = list(reversed(path_fwd))
 
         # Passeggeri medi
-        p_k = int(np.random.geometric(p=0.6))
-        if p_k == 0:
-            p_k = 1  # evita 0 passeggeri
+        ### GEOMETRICA: modella il numero di prove fino al primo successo,
+        #               dove p è la probabilità di successo in ciascuna prova
+        p_k = int(np.random.geometric(p=0.1))   # p prob che sia 1
 
         # Richiesta O→D
         requests_list.append({
@@ -107,7 +107,7 @@ def generate_requests_graph_asymm(df_stops, G_bar, n_requests=20, output_csv=Non
         path_nodes = [int(n) for n in path_nodes]
 
         # Passeggeri medi
-        p_k = int(np.random.geometric(p=0.6))
+        p_k = int(np.random.geometric(p=0.1))
 
         requests_list.append({
             "request_id": k,

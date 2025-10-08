@@ -5,7 +5,7 @@ from data.demands.demand_creation import *
 from data.bus_lines.cross.bus_line_creation_cross import *
 
 
-FLAG_g = 1   # Re-create the bus lines (YES/NO)
+FLAG_g = 0  # Re-create the bus lines (YES/NO)
 FLAG_r = 1   # Re-create the requests (YES/NO)
 FLAG_d = 1   # Flag for debug
 
@@ -70,20 +70,36 @@ if __name__ == "__main__":
 
 
     # === CAPACITY ===
-    data["Q"] = 10
+    data["Q"] = 8
+
 
 
     # === TRAVEL TIME ===
     with open("data/bus_lines/cross/cross_bus_lines_graph.gpickle", "rb") as f:
-        G_lines = pickle.load(f) 
-    G_lines = assign_travel_times(G_lines, speed_kmh=35)
-    t = compute_segment_travel_times(data['Nl'], G_lines)
-    data['t'] = t
-    if FLAG_d == 1:
-        print("Segment travel times:")
-        for k,v in t.items():
-            print(f"  {k} -> {v:.3f} sec")
+        G_lines = pickle.load(f)
+    with open("data/bus_lines/cross/cross_rebalancing_graph.gpickle", "rb") as f:
+        G_reb = pickle.load(f)
 
+    # === Assegnazione travel time (m/s) ===
+    G_lines = assign_travel_times(G_lines, speed_kmh=35)   # bus lines
+    G_reb   = assign_travel_times(G_reb,   speed_kmh=40)   # rebalance network
+
+    # === Calcolo tempi per segmenti e archi di rebalance ===
+    t  = compute_segment_travel_times(data['Nl'], G_lines)
+    tr = compute_rebalancing_travel_times(data['R'], G_reb)
+    data['t']  = t
+    data['tr'] = tr
+
+
+    # === DEBUG ===
+    if FLAG_d == 1:
+        print("\n t' (tempi bus lines) [l,h]: ")
+        for (l, h), val in sorted(t.items()):
+            print(f"Linea {l}, segmento {h}: {val:.2f} sec")
+
+        print("\n tau (tempi archi rebalance) [i,j]: ")
+        for (i, j), val in sorted(tr.items()):
+            print(f"Arco di rebalancing ({i} → {j}) : {val:.2f} sec")
 
 
 
@@ -94,25 +110,27 @@ if __name__ == "__main__":
             G_bar = pickle.load(f)
         generate_requests_graph_asymm(    # symm or asymm
             df_stops, G_bar,     # Using G_bar (simple, directed, no bus lines)
-            n_requests=10,
+            n_requests=20,
             output_csv="data/demands/cross_mobility_requests.csv"
             )
 
     
     # === LOAD REQUESTS ===
-    K, p, Pk, Pkl, Blk = load_requests(
+    K, p, Pk, Akl, Blk = load_requests(
         requests_csv="data/demands/cross_mobility_requests.csv",
         data=data
     )
-    data["K"], data["p"], data["Pk"], data["Pkl"], data["Blk"] = K, p, Pk, Pkl, Blk
+    data["K"], data["p"], data["Pk"], data["Akl"], data["Blk"] = K, p, Pk, Akl, Blk
     
     if FLAG_d == 1:
-        print(f"Numero richieste K: {len(K)}")
-        print(f"Passeggeri per richiesta: {p}")
+        print(f"\nNumero richieste K: {len(K)}")
+        print(f"\nPasseggeri per richiesta pk: {p}")
+
+        print(f"\nPath richieste Pk: ")
         for k in K:
-            print(f"  Richiesta {k}: Pk={Pk[k]}")
-        print("\n=== CHECK Pkl ===")
-        for (k, l), arcs in Pkl.items():
+            print(f"Richiesta {k}: Pk={Pk[k]}")
+        print("\n=== CHECK Akl ===")
+        for (k, l), arcs in Akl.items():
             print(f"  (k={k}, l={l}) -> {arcs}")
         print("\n=== CHECK Blk ===")
         for (l, k), triples in Blk.items():
@@ -131,29 +149,33 @@ if __name__ == "__main__":
     # === MODEL CREATION ===
     mba_base = MBA_ILP_BASE(data)
     mba_base.build()
-    #mba_full = MBA_ILP_FULL(data)
-    #mba_full.build()
+    mba_full = MBA_ILP_FULL(data)
+    mba_full.build()
 
 
     # === OPTIMIZATION ===
+    print("\n\n\n")
+    print("============== RISOLUZIONE BASE MODEL ==============\n")
     mba_base.solve()
-    #mba_full.solve()
+    print("\n\n\n")
+    print("\n============== RISOLUZIONE FULL MODEL ==============\n")
+    mba_full.solve()
 
+    print("\n\n\n")
+    
     # === DISPLAY + SAVE per entrambi ===
     if FLAG_d == 1:
         display_results(mba_base, "cross_BASE", data)
     x_base, w_base, z_base = save_results_model(mba_base, "cross_BASE", data, G_lines)
-    plot_bus_network(G_lines, data, w_sol=w_base, x_sol=x_base, z_sol=z_base, title="Soluzione modello BASE")
 
 
-    #if FLAG_d == 1:
-    #    display_results(mba_full, "cross_FULL", data)
-    #x_full, w_full, z_full = save_results_model(mba_full, "cross_FULL", data, G_lines)
-    #plot_bus_network(G_lines, data, w_sol=w_full, x_sol=x_full, z_sol=z_full, title="Soluzione modello FULL")
-
-        
+    if FLAG_d == 1:
+        display_results(mba_full, "cross_FULL", data)
+    x_full, w_full, z_full, v_full = save_results_model(mba_full, "cross_FULL", data, G_lines)
 
 
 
 
+    # Plot confronto
+    #plot_comparison_base_full(G_lines, G_reb, w_base, w_full, v_full)
 

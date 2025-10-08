@@ -8,7 +8,7 @@
 
 ### Optimization:
 - (A) BASE MODEL: no rebalancing
-- (B) FULL MODEL: with both rebalancing an line changes
+- (B) FULL MODEL: with rebalancing
 
 
 
@@ -45,16 +45,4 @@ MBA_Optimization/
 │── main_lines.py                # script principale per lines
 │── main_grid.py                 # script principale per grid
 └── main_graph.py                # script principale per city      
-
-
-
-
-
-
-
-### Additional Comments:
-- 2 graphs: 1 for bus lines, 1 for rebalancing archs
-- Graphs are saved as MultiDiGraphs() => multigraphs, directional and each arch has a unique key = "bus line" 
-- The input info is saved usually as csv, the outputs instead as json
-
 

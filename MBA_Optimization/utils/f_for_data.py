@@ -136,7 +136,7 @@ def load_requests(requests_csv, data):
     A  = data['A']
 
     Pk  = {}
-    Pkl = {}
+    Akl = {}
     
     ok = {}
     dk = {}
@@ -158,7 +158,7 @@ def load_requests(requests_csv, data):
         # === Pk: lista di nodi ===
         Pk[k] = path_nodes
 
-        # === Pkl: archi del percorso k mappati su linee ===
+        # === Akl: archi del percorso k mappati su linee ===
         for i in range(len(path_nodes) - 1):
             u, v = path_nodes[i], path_nodes[i + 1]
             found = False  # flag per verificare se l’arco è stato trovato almeno in una linea
@@ -169,7 +169,7 @@ def load_requests(requests_csv, data):
                     for idx in range(len(seg) - 1):
                         if seg[idx] == u and seg[idx + 1] == v:
                             # Arco (u,v) trovato nella direzione corretta nel segmento h della linea ℓ
-                            Pkl.setdefault((k, ℓ), []).append((u, v, h))
+                            Akl.setdefault((k, ℓ), []).append((u, v, h))
                             found = True
                             break  # esci dal ciclo sul segmento (passa al prossimo segmento)
                     if found:
@@ -194,7 +194,7 @@ def load_requests(requests_csv, data):
             for l in common_lines:
                 Blk[(l, k)].append((i, j, m))
 
-    return K, p, Pk, Pkl, Blk
+    return K, p, Pk, Akl, Blk
 
 
 
@@ -257,6 +257,23 @@ def compute_segment_travel_times(N, G_lines):
             t[ℓ, h] = seg_time
     return t
 
+
+# === REBALANCE TRAVEL TIME ===
+def compute_rebalancing_travel_times(R, G_reb):
+    """
+    Calcola i tempi di viaggio (sec) per ogni arco di ribilanciamento (i,j).
+    Usa l'attributo 'travel_time' già assegnato in G_reb.
+    Se l'arco non esiste, imposta 0 o emette un warning.
+    """
+    tr = {}
+    for (i, j) in R:
+        if G_reb.has_edge(i, j):
+            first_key = list(G_reb[i][j].keys())[0]
+            tr[(i, j)] = G_reb[i][j][first_key].get("travel_time", 0.0)
+        else:
+            tr[(i, j)] = 0.0
+            print(f"⚠️ Arco di rebalancing ({i},{j}) non trovato in G_reb")
+    return tr
 
 
 
