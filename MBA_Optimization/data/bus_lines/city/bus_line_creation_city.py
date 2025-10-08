@@ -1,323 +1,173 @@
-import gurobipy
-import osmnx as ox
 import pandas as pd
-import random
-import networkx as nx
-import pickle
 import matplotlib.pyplot as plt
+import networkx as nx
+import osmnx as ox
+import pickle
+import random
 from collections import defaultdict
-import os
 import math
-
-# Per accelerare la parte di costruzione e analisi dei grafi 
-# (come G_lines, G_bar, G_reb) usando cuGraph + cuDF sulla GPU.
+import numpy as np
+import os
 
 random.seed(123)
+np.random.seed(123)
 
 
-
-# GENERATE FAKE CITY BUS LINES
-# Creazione di linee di autobus (fittizie) basandosi su un grafo esistente delle strade di una città (es. Torino)
-def transit_data_city(city, n_lines=2, n_stops=8, network_type="drive"):
+# === GENERATE CITY DATA ON REAL MAP ===
+def create_test_data_city_real(city="Turin, Italy", n_lines=5, n_stops_line=10):
+    """
+    Genera linee bus fittizie sopra la rete stradale reale di Torino.
+    - Mantiene stop_id numerici (per compatibilità col modello)
+    - Salva anche lon/lat per visualizzare sul grafo reale
+    """
     os.makedirs("data/bus_lines/city", exist_ok=True)
 
-    # === STEP 1: crea grafo OSM in coordinate geografiche ===
-    G_city = ox.graph_from_place(city, network_type=network_type)
-
-    # salvo lon/lat prima della proiezione
-    for n, data in G_city.nodes(data=True):
-        data['lon'] = data['x']   # longitudine (gradi)
-        data['lat'] = data['y']   # latitudine (gradi)
-
-    # === STEP 2: proietto il grafo in metri (per i calcoli) ===
+    # === GRAFO STRADALE REALE ===
+    print(f"📍 Scarico rete stradale di {city}...")
+    G_city = ox.graph_from_place(city, network_type="drive")
     G_proj = ox.project_graph(G_city)
-    for n, data in G_proj.nodes(data=True):
-        data['x_proj'] = data['x']  # metri
-        data['y_proj'] = data['y']  # metri
+
+    # HUB principali (Porta Susa e Porta Nuova)
+    hubs_lonlat = {
+        "Porta Susa": (7.6696, 45.0703),
+        "Porta Nuova": (7.6787, 45.0626)
+    }
+
+    # Trovo i nodi OSM più vicini agli hub
+    hub_nodes = {
+        name: ox.distance.nearest_nodes(G_city, lon, lat)
+        for name, (lon, lat) in hubs_lonlat.items()
+    }
+    print(f"✅ Hub nodes: {hub_nodes}")
 
     df_routes_list = []
     df_stops_list = []
     stop_id = 0
-    used_nodes = set()
 
-    # Centrality for intersections
-    # Per cercare di iniziare da nodi che sono "centrali" e avere la maggior parte delle linee autobus nel centro città
-    centrality = nx.betweenness_centrality(G_proj, weight="length")
-    top_k = 30
-    top_nodes = sorted(centrality, key=centrality.get, reverse=True)[:top_k]
+    # === Genera linee tra i due hub con deviazioni casuali ===
+    for line_idx in range(1, n_lines + 1):
+        # partenza e arrivo hub alternati
+        start_hub = "Porta Susa" if line_idx % 2 == 0 else "Porta Nuova"
+        end_hub = "Porta Nuova" if start_hub == "Porta Susa" else "Porta Susa"
+        start_node = hub_nodes[start_hub]
+        end_node = hub_nodes[end_hub]
 
-    min_dist = 500    # distanza tra uno stop e il prossimo
+        # trova cammino più breve sulla rete stradale
+        path = ox.shortest_path(G_city, start_node, end_node, weight="length")
 
-    for line_idx in range(1, n_lines+1):
-        if line_idx == 1:
-            start_node = random.choice(top_nodes)
-        else:
-            start_node = random.choice(list(used_nodes))
+        # scegli un sottoinsieme casuale di nodi lungo il percorso come fermate
+        sampled_nodes = sorted(random.sample(path, min(n_stops_line, len(path))))
+        geometry_closed = sampled_nodes + sampled_nodes[-2::-1]
 
-        stops = [start_node]
-        current_node = start_node
-        used_nodes.add(start_node)
-        stop_ids_line = []
-
-        while len(stops) < n_stops:
-            neighbors = list(G_proj.neighbors(current_node))
-            if not neighbors:
-                break
-            weights = [2 if n in used_nodes else 1 for n in neighbors]
-            next_node = random.choices(neighbors, weights=weights, k=1)[0]
-            stops.append(next_node)
-            current_node = next_node
-            used_nodes.add(next_node)
-
-        # Add stops to df_stops_list
-        for n in stops:
+        # salva fermate
+        for n in sampled_nodes:
+            x = G_city.nodes[n]["x"]
+            y = G_city.nodes[n]["y"]
+            lat = G_city.nodes[n]["y"]
+            lon = G_city.nodes[n]["x"]
             df_stops_list.append({
                 "stop_id": stop_id,
-                "name": stop_id,       # integer name
-                "type": "bus_stop",
-                "node": stop_id,
-                "lon": G_city.nodes[n]['lon'],     # per plot
-                "lat": G_city.nodes[n]['lat'],     # per plot
-                "x": G_proj.nodes[n]['x_proj'],    # per calcoli
-                "y": G_proj.nodes[n]['y_proj'],    # per calcoli
-                "osm_node": n          # original OSM node
+                "name": f"Stop_{stop_id}",
+                "osm_node": n,
+                "x": x, "y": y,
+                "lon": lon, "lat": lat,
+                "type": "bus_stop"
             })
-            stop_ids_line.append(stop_id)
             stop_id += 1
 
-        # Save line as list of integers (with return path)
-        geometry_closed = stop_ids_line + stop_ids_line[-2::-1]   
         df_routes_list.append({
             "route": "bus",
             "ref": str(line_idx),
             "name": f"Line {line_idx}",
-            "geometry": geometry_closed
+            "geometry": list(range(stop_id - len(sampled_nodes), stop_id))
+                        + list(range(stop_id - 2, stop_id - len(sampled_nodes) - 1, -1))
         })
 
     df_routes = pd.DataFrame(df_routes_list)
     df_stops = pd.DataFrame(df_stops_list)
+    print(f"💾 Linee create: {len(df_routes)}, fermate: {len(df_stops)}")
 
-    # Build directed MULTIGRAPH for lines
-    G_lines = nx.MultiDiGraph()
+    return df_routes, df_stops, G_city
+
+
+# === CREA GRAFI ===
+def create_lines_graph(df_routes, df_stops):
+    G = nx.MultiDiGraph()
     for _, row in df_stops.iterrows():
-        G_lines.add_node(row['stop_id'], x=row['x'], y=row['y'], lon=row['lon'], lat=row['lat'])
+        G.add_node(int(row['stop_id']), x=row['x'], y=row['y'], lon=row['lon'], lat=row['lat'])
     for _, row in df_routes.iterrows():
-        stop_ids_line = row['geometry']
-        for u, v in zip(stop_ids_line[:-1], stop_ids_line[1:]):
-            # calcolo la lunghezza euclidea in metri
-            x1, y1 = G_lines.nodes[u]['x'], G_lines.nodes[u]['y']
-            x2, y2 = G_lines.nodes[v]['x'], G_lines.nodes[v]['y']
-            length = math.dist((x1, y1), (x2, y2))     # servirà poi per calcolare il tempo di percorrenza
-
-            # ogni arco è distinto → MultiDiGraph salva chiave (key) diversa
-            G_lines.add_edge(u, v, weight=1, length=length, ref=row['ref'])
-            G_lines.add_edge(v, u, weight=1, length=length, ref=row['ref'])
-
-    # Save CSVs
-    city_clean = city.split(",")[0].replace(" ", "_")
-    df_routes.to_csv(f"data/bus_lines/city/city_{city_clean}_bus_lines.csv", index=False)
-    df_stops.to_csv(f"data/bus_lines/city/city_{city_clean}_bus_stops.csv", index=False)
-
-    return df_routes, df_stops, G_city, G_lines
+        stops = row['geometry']
+        for u, v in zip(stops[:-1], stops[1:]):
+            x1, y1 = df_stops.loc[df_stops['stop_id'] == u, ['x', 'y']].values[0]
+            x2, y2 = df_stops.loc[df_stops['stop_id'] == v, ['x', 'y']].values[0]
+            length = math.dist((x1, y1), (x2, y2))
+            G.add_edge(u, v, weight=1, length=length, ref=row['ref'])
+            G.add_edge(v, u, weight=1, length=length, ref=row['ref'])
+    print("✅ G_lines creato.")
+    return G
 
 
-
-# === CREATE G_bar simple GRAPH ===
-def build_G_bar(G_lines):
-    """
-    Crea il grafo semplice G_bar da un MultiDiGraph G_lines.
-    - I nodi restano uguali.
-    - Se due nodi sono collegati da almeno una linea, aggiungo un arco unico.
-    - Come peso uso la lunghezza minima tra le linee che collegano quei due nodi.
-    """
-    G_bar = nx.Graph()
-    # Copio i nodi con attributi
-    for n, data in G_lines.nodes(data=True):
-        G_bar.add_node(n, **data)
-
-    # Per ogni coppia di nodi collegati da almeno una linea
-    for u, v, data in G_lines.edges(data=True):
-        length = data.get("length", 1.0)
-        if G_bar.has_edge(u, v):
-            # Tengo la lunghezza minima
-            if length < G_bar[u][v]["length"]:
-                G_bar[u][v]["length"] = length
-        else:
-            G_bar.add_edge(u, v, length=length)
-
-    return G_bar
-
-
-
-
-# === CREATE REBALANCING GRAPH ===
-def create_rebalancing_graph(G, df_routes, df_stops, save_path=None):
-    # line_nodes: ref -> list of stop_id integers
+def create_rebalancing_graph(G_lines, df_routes, df_stops):
     line_nodes = {row['ref']: row['geometry'] for _, row in df_routes.iterrows()}
 
-    ### Terminals
-    # Primo nodo + eventualmente quello che compare una sola volta (es.1e3 in 1-2-3-2-1)
     T_nodes = set()
     for nodes in line_nodes.values():
         counts = defaultdict(int)
         for n in nodes:
             counts[n] += 1
-        # Prendi sempre il primo nodo
         terminals_line = [nodes[0]]
-        # Aggiungi eventuali nodi che compaiono una sola volta
         terminals_line += [n for n, c in counts.items() if c == 1 and n != nodes[0]]
         T_nodes.update(terminals_line)
 
-
-    ### Junctions (dove si intersecano almeno 2 linee)
     node_in_lines = defaultdict(set)
     for line_ref, nodes in line_nodes.items():
-        for n in set(nodes):  # conta ogni nodo una sola volta per linea
+        for n in set(nodes):
             node_in_lines[n].add(line_ref)
-    J_nodes = set(n for n, lines in node_in_lines.items() if len(lines) >= 2)
+    J_nodes = {n for n, lines in node_in_lines.items() if len(lines) >= 2}
 
-    ### T U J
     special_nodes = T_nodes.union(J_nodes)
-
-    # Build directed MULTIGRAPH for rebalancing
     G_reb = nx.MultiDiGraph()
     for n in special_nodes:
-        stop_info = df_stops[df_stops['stop_id']==n].iloc[0]
-        G_reb.add_node(n, x=stop_info['x'], y=stop_info['y'], lon=stop_info['lon'], lat=stop_info['lat'])
-
+        stop = df_stops.loc[df_stops['stop_id'] == n].iloc[0]
+        G_reb.add_node(n, x=stop['x'], y=stop['y'], lon=stop['lon'], lat=stop['lat'])
     for u in special_nodes:
         for v in special_nodes:
             if u != v:
                 x1, y1 = G_reb.nodes[u]['x'], G_reb.nodes[u]['y']
                 x2, y2 = G_reb.nodes[v]['x'], G_reb.nodes[v]['y']
-                length = math.dist((x1, y1), (x2, y2))      # la lunghezza servirà poi anche per il calcolo del tempo di percorrenza
+                length = math.dist((x1, y1), (x2, y2))
                 G_reb.add_edge(u, v, weight=1, length=length)
-
-    if save_path:
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        with open(save_path, "wb") as f:
-            pickle.dump(G_reb, f)
-        print(f"Rebalancing graph saved as {save_path}")
-
+    print(f"🔁 Nodi rebalancing: {len(special_nodes)}")
     return G_reb
 
 
+# === PLOT ===
+def plot_transit_graph_on_city(G_city, df_routes, df_stops, G_reb, title="Bus + Rebalancing on Torino"):
+    fig, ax = ox.plot_graph(G_city, show=False, close=False, node_size=0, edge_color="lightgray", edge_linewidth=0.5)
 
-# === CREATE FULL GRAPH G ===
-# With label type == "line" or "rebalancing"
-def create_full_graph(G_lines, G_reb):
-    """
-    Unisce il grafo delle linee (G_lines) e quello di rebalancing (G_reb)
-    in un unico MultiDiGraph G, mantenendo gli attributi originali.
-    """
-    G_full = nx.MultiDiGraph()
-
-    # === NODI ===
-    for n, data in G_lines.nodes(data=True):
-        G_full.add_node(n, **data)
-    for n, data in G_reb.nodes(data=True):
-        if n not in G_full:
-            G_full.add_node(n, **data)
-
-    # === ARCHI DELLE LINEE ===
-    for u, v, key, data in G_lines.edges(keys=True, data=True):
-        data_full = data.copy()
-        data_full["type"] = "line"
-        G_full.add_edge(u, v, key=f"line_{data.get('ref','')}_{key}", **data_full)
-
-    # === ARCHI DI REBALANCING ===
-    for u, v, key, data in G_reb.edges(keys=True, data=True):
-        data_full = data.copy()
-        data_full["type"] = "rebalancing"
-        data_full["ref"] = None
-        G_full.add_edge(u, v, key=f"reb_{key}", **data_full)
-
-    return G_full
-
-
-
-
-# === PLOT FUNCTION ===
-# Plot del grafo delle linee autobus e linee di rebalance sul grafo della città
-import os
-
-def plot_transit_graph(G_city, G_lines, G_reb, df_routes, df_stops,
-                       title="Transit Lines + Rebalancing", save_fig=False):
-    """
-    Plot del grafo delle linee autobus e linee di rebalance sul grafo della città.
-    Se save_fig=True, salva il grafico in formato PNG nella cartella:
-    C:/Users/vidag/Documents/UNIVERSITA/TESI/code/Thesis/MBA_Optimization/data/bus_lines/city
-    """
-    fig, ax = ox.plot_graph(G_city, show=False, close=False, node_size=0,
-                            edge_color='lightgray', edge_linewidth=0.5)
-
-    colors = plt.cm.get_cmap('tab10', len(df_routes))
-
-    # === Disegna linee autobus ===
+    colors = plt.colormaps.get_cmap("tab10", len(df_routes))
     for idx, row in df_routes.iterrows():
-        stop_ids_line = row['geometry']
-        coords = [(df_stops[df_stops['stop_id'] == n]['lon'].values[0],
-                   df_stops[df_stops['stop_id'] == n]['lat'].values[0])
-                  for n in stop_ids_line]
+        stops = row["geometry"]
+        coords = [(df_stops.loc[df_stops['stop_id'] == s, 'lon'].values[0],
+                   df_stops.loc[df_stops['stop_id'] == s, 'lat'].values[0]) for s in stops]
         xs, ys = zip(*coords)
         ax.plot(xs, ys, color=colors(idx), linewidth=2, label=row['name'])
+    ax.scatter(df_stops["lon"], df_stops["lat"], color="red", s=20, zorder=5, label="Stops")
 
-    # === Disegna fermate ===
-    ax.scatter(df_stops['lon'], df_stops['lat'], color='red', s=20, zorder=5, label='Stops')
-
-    # === Disegna archi di rebalancing ===
-    for u, v, key in G_reb.edges(keys=True):
+    # rebalancing edges
+    for u, v, _ in G_reb.edges(keys=True):
         x1, y1 = G_reb.nodes[u]['lon'], G_reb.nodes[u]['lat']
         x2, y2 = G_reb.nodes[v]['lon'], G_reb.nodes[v]['lat']
-        ax.arrow(x1, y1, x2 - x1, y2 - y1, color='green', alpha=0.5,
-                 length_includes_head=True, head_width=0.0005, head_length=0.0005)
+        ax.arrow(x1, y1, x2 - x1, y2 - y1, color="green", alpha=0.25, length_includes_head=True, head_width=0.0004)
 
     ax.set_title(title)
-    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
-
-    # === Salvataggio ===
-    if save_fig:
-        save_dir = f"C:/Users/vidag/Documents/UNIVERSITA/TESI/code/Thesis/MBA_Optimization/data/bus_lines/city"
-        filename = title.replace(" ", "_").lower() + ".png"
-        full_path = os.path.join(save_dir, filename)
-        plt.savefig(full_path, dpi=300, bbox_inches='tight')
-
+    ax.legend(loc="center left", bbox_to_anchor=(1, 0.5))
     plt.show()
-
-
-
-
 
 
 # === MAIN ===
 if __name__ == "__main__":
-    city_name = "Turin, Italy"
-    city_clean = city_name.split(",")[0].strip()
-    print(f"Generating transit data for {city_name}...")
-
-    df_routes, df_stops, G_city, G_lines = transit_data_city(city=city_name, n_lines=7, n_stops=20)
-
-    # Dopo aver creato G_lines
-    G_bar = build_G_bar(G_lines)
-    with open(f"data/bus_lines/city/city_{city_clean}_Gbar_graph.gpickle", "wb") as f:
-        pickle.dump(G_bar, f)
-
-
-    G_reb = create_rebalancing_graph(
-        G_lines,
-        df_routes,
-        df_stops,
-        save_path=f"data/bus_lines/city/city_{city_clean}_rebalancing_graph.gpickle"
-    )
-
-    G_full = create_full_graph(G_lines, G_reb)
-    with open(f"data/bus_lines/city/city_{city_clean}_G_graph.gpickle", "wb") as f:
-        pickle.dump(G_full, f)
-
-    plot_transit_graph(G_city, G_lines, G_reb, df_routes, df_stops, title="Transit Lines + Rebalancing")
-
-    # Save line and city graphs
-    with open(f"data/bus_lines/city/city_{city_clean}_bus_lines_graph.gpickle", "wb") as f:
-        pickle.dump(G_lines, f)
-    with open(f"data/bus_lines/city/city_{city_clean}_street_graph.gpickle", "wb") as f:
-        pickle.dump(G_city, f)
+    df_routes, df_stops, G_city = create_test_data_city_real("Turin, Italy", n_lines=6, n_stops_line=15)
+    G_lines = create_lines_graph(df_routes, df_stops)
+    G_reb = create_rebalancing_graph(G_lines, df_routes, df_stops)
+    plot_transit_graph_on_city(G_city, df_routes, df_stops, G_reb)

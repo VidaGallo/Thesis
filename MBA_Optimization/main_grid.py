@@ -1,4 +1,3 @@
-# === MAIN per il caso GRID ===
 from utils.f_for_data import *
 from utils.f_for_results import *
 from models.models_mba import *
@@ -99,11 +98,12 @@ if __name__ == "__main__":
     mba_full.build()
 
     # === RISOLUZIONE ===
-    print("\n============== RISOLUZIONE BASE MODEL (GRID) ==============\n")
+    print("\n\n\n============== RISOLUZIONE BASE MODEL (GRID) ==============\n")
     mba_base.solve()
-    print("\n============== RISOLUZIONE FULL MODEL (GRID) ==============\n")
+    print("\n\n\n============== RISOLUZIONE FULL MODEL (GRID) ==============\n")
     mba_full.solve()
 
+    print("\n\n\n")
     # === DISPLAY + SAVE ===
     if FLAG_d == 1:
         display_results(mba_base, "grid_BASE", data)

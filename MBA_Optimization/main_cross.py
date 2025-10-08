@@ -23,8 +23,7 @@ if __name__ == "__main__":
             G_lines,
             save_path="data/bus_lines/cross/cross_Gbar_graph.gpickle"
         )
-        # Plot (opzionale: mostri G_lines + G_reb, non G_bar perché è solo per percorsi passeggeri)
-        plot_transit_graphs(G_lines, G_reb, df_routes, df_stops, title="Transit + Rebalancing")
+        plot_transit_graphs(G_lines, G_reb, df_routes, df_stops, title="Transit + Rebalancing", save_fig=True)
 
 
 
